@@ -1,3 +1,4 @@
+
 #pragma once
 #include <cstddef>
 
@@ -7,7 +8,13 @@ struct GemmShape {
   int m, n, k;
 };
 
-// row-major: A[m,k], B[k,n], C[m,n]
+using GemmFn = void (*)(const float *A, const float *B, float *C, GemmShape s);
+
+// Solver CUDA
 void gemm_cuda_naive(const float *A, const float *B, float *C, GemmShape s);
+
+// void gemm_cuda_tiled(const float* A, const float* B, float* C, GemmShape s);
+// void gemm_alpaka_naive(const float* A, const float* B, float* C, GemmShape
+// s);
 
 } // namespace gemm
