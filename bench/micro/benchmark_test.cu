@@ -1,6 +1,6 @@
 
 // bench/micro/benchmark_test.cu
-#include "gemm/gemm.hpp" gemm::gemm_cuda_naive + GemmShape
+#include "gemm/gemm.hpp"  // gemm::gemm_cuda_naive + GemmShape
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -14,6 +14,15 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+
+
+
+static std::string lower(std::string s) {
+  std::transform(s.begin(), s.end(), s.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  return s;
+}
+
 
 static std::unordered_map<std::string, std::string>
 parse_prm(const std::string &path) {
@@ -42,11 +51,6 @@ parse_prm(const std::string &path) {
   return m;
 }
 
-static std::string lower(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  return s;
-}
 
 static void ck(cudaError_t e, const char *msg) {
   if (e != cudaSuccess) {
@@ -201,7 +205,9 @@ static float bench_naive_once_ms(int N, const RunCfg &cfg) {
   return total_ms / cfg.reps;
 }
 
-static int tb_naive_float(const RunCfg &cfg) {
+static int tb_naive_float(const RunCfg &cfg,
+                          const std::string& solver,
+                          const std::string& prec) {
   std::printf("Solver,Precision,Size,Time_ms,GFLOPs\n");
   for (int N = cfg.minN; N <= cfg.maxN; N += cfg.step) {
     float t_ms = bench_naive_once_ms(N, cfg);
@@ -295,7 +301,8 @@ int main(int argc, char **argv) {
 
   // dispatcher
   if (solver == "naive" && prec == "float") {
-    return tb_naive_float(cfg);
+    return tb_naive_float(cfg, solver, prec);
+
   }
 
   std::fprintf(stderr,
@@ -304,4 +311,4 @@ int main(int argc, char **argv) {
                solver.c_str(), prec.c_str());
   return 2;
 }
-}
+
