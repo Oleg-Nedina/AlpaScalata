@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -q gpu
+#PBS -l select=1:ncpus=2:ngpus=1
+#PBS -l walltime=00:05:00
+#PBS -N cuda_naive_test
+
+set -euo pipefail
+
+# Log manuale: se questo file NON appare, il job non è mai partito
+LOG="/home/u10905938/cuda_naive_debug_${PBS_JOBID}.log"
+mkdir -p /home/u10905938
+
+# Redireziona TUTTO su LOG (stdout+stderr) indipendentemente da PBS
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== START ==="
+date
+echo "JOBID=$PBS_JOBID"
+echo "HOST=$(hostname)"
+echo "PWD(before cd)=$(pwd)"
+echo "PBS_O_WORKDIR=${PBS_O_WORKDIR:-unset}"
+
+cd "$PBS_O_WORKDIR"
+echo "PWD(after cd)=$(pwd)"
+ls -lah
+
+echo "--- Load CUDA via Spack ---"
+source /software/spack-v1.0/share/spack/setup-env.sh
+spack load cuda
+which nvcc
+nvcc --version
+
+echo "--- Compile ---"
+set -x
+nvcc -O2 -std=c++17 -Iinclude -arch=sm_89 \
+  src/backends/cuda/gemm_cuda_naive.cu \
+  tests/unit/test_correctness_cuda.cpp \
+  -o test_cuda_naive
+set +x
+
+echo "--- Run ---"
+./test_cuda_naive
+
+echo "=== END OK ==="
+date
+
