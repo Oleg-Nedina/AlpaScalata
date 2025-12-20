@@ -24,18 +24,29 @@ The repository is designed to be **reproducible, extensible, and cluster-friendl
 
 ## Repository Structure
 
-AlpaScalata/
-├── include/ # Public GEMM API (solver interfaces)
-├── src/ # Backend implementations (CUDA, Alpaka)
-├── bench/ # Micro-benchmarks
-├── tests/ # Unit correctness tests
-├── configs/ # Benchmark configuration files (.prm)
-├── scripts/ # Plotting and utility scripts
-├── data/ # Benchmark results (CSV)
-├── plots/ # Generated plots (PDF)
-├── jobs/ # PBS job scripts
-└── docs/ # Project documentation
---- 
+.
+├── CMakeLists.txt        # Top-level build orchestration
+├── include/              # Public GEMM interfaces
+│   └── gemm/
+├── src/                  # All solver implementations
+│   ├── backends/
+│   │   ├── cuda/         # Native CUDA solvers
+│   │   └── alpaka/       # Alpaka solvers (CPU + GPU)
+│   └── common/
+├── bench/
+│   └── micro/            # Benchmark executables
+├── tests/                # Correctness tests (small, deterministic)
+├── config/               # .prm experiment definitions
+├── data/
+│   └── results/          # Raw CSV benchmark output
+├── plots/                # Generated PDF plots (not versioned)
+├── scripts/              # Post-processing & plotting
+├── jobs/                 # Cluster (PBS) job scripts
+├── external/
+│   └── alpaka/           # Alpaka (git submodule)
+└── docs/                 # Design notes and reports
+
+
 
 
 
