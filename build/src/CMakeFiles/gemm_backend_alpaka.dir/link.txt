@@ -1,0 +1,2 @@
+/usr/bin/ar qc libgemm_backend_alpaka.a CMakeFiles/gemm_backend_alpaka.dir/backends/alpaka/gemm_alpaka_naive.cpp.o
+/usr/bin/ranlib libgemm_backend_alpaka.a

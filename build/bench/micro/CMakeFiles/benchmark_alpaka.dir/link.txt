@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/benchmark_alpaka.dir/benchmark_alpaka.cpp.o -o benchmark_alpaka  ../../src/libgemm_backend_alpaka.a /usr/lib/x86_64-linux-gnu/librt.a 
