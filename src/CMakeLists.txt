@@ -12,15 +12,19 @@ endif()
 # Alpaka backend library
 if(ENABLE_ALPAKA)
   add_library(gemm_backend_alpaka STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/backends/alpaka/gemm_alpaka_naive.cpp
-  )
-  target_link_libraries(gemm_backend_alpaka PUBLIC gemm_headers alpaka::alpaka)
-  target_compile_features(gemm_backend_alpaka PUBLIC cxx_std_20)
+  backends/alpaka/gemm_alpaka_naive.cpp
+)
+  target_link_libraries(gemm_backend_alpaka PUBLIC alpaka::alpaka)
+  target_include_directories(gemm_backend_alpaka PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
-  # If Alpaka uses CUDA backend on cluster, link cudart + runpath too
-  if(ENABLE_CUDA)
-    target_link_libraries(gemm_backend_alpaka PUBLIC CUDA::cudart)
-    target_add_cuda_runpath(gemm_backend_alpaka)
+  # Se Alpaka CUDA è abilitato, compila questo TU con nvcc (LANGUAGE CUDA)
+  if(alpaka_ACC_GPU_CUDA_ENABLE)
+    set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/backends/alpaka/gemm_alpaka_naive.cpp
+    PROPERTIES LANGUAGE CUDA
+  )
+    # opzionale ma utile per evitare ambiguità
+    set_target_properties(gemm_backend_alpaka PROPERTIES LINKER_LANGUAGE CUDA)
   endif()
 endif()
 
