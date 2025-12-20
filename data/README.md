@@ -1,11 +1,27 @@
 
-## data/
+# Benchmark Data
 
-Dati di input e output.
+This directory stores **raw benchmark outputs**.
 
-Include:
-- matrici di test
-- risultati dei benchmark (CSV/JSON)
+---
 
-I file di grandi dimensioni o temporanei non devono essere versionati
-e sono tipicamente generati su filesystem di tipo scratch.
+## Structure
+
+data/
+└── results/
+├── naive_float.csv
+├── tiled_float.csv
+└── ...
+
+
+---
+
+## Notes
+
+- Files are generated automatically by benchmark runs
+- Data is stored in CSV format for portability
+- This directory is typically excluded from version control
+
+---
+
+

@@ -1,12 +1,18 @@
+# Utility Scripts
 
-## scripts/
+This directory contains helper scripts used in the project.
 
-Script di supporto.
+Scripts are mainly intended for:
+- result post-processing
+- plotting
+- automation support
 
-Include:
-- script di lancio dei benchmark
-- script di post-processing
-- script Python per la generazione dei plot
+---
 
-Il codice di analisi è separato dal codice di calcolo
-per mantenere il progetto modulare.
+## Subdirectories
+scripts/
+└── plot/
+
+---
+
+

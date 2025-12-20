@@ -1,11 +1,42 @@
 
-## tests/
+# Tests
 
-Test di correttezza.
+This directory contains **unit tests** focused on correctness.
 
-Questa cartella contiene test automatici che verificano:
-- correttezza numerica del prodotto tra matrici
-- gestione di casi limite (dimensioni non multiple, stride, ecc.)
+The purpose of these tests is to:
+- validate solver implementations
+- catch regressions early
+- provide confidence before benchmarking
 
-I test confrontano l’output GPU con l’implementazione CPU di riferimento.
-Non contengono misure di performance.
+---
+
+## Test Philosophy
+
+- Tests are **deterministic**
+- Matrix sizes are small
+- Results are compared against a known-correct reference
+- Performance is NOT measured here
+
+---
+
+## Structure
+tests/
+└── unit/
+├── test_correctness_cpu.cpp
+└── test_correctness_cuda.cpp
+
+---
+
+## Running Tests
+
+Example (CUDA correctness test):
+
+```bash
+nvcc -O2 -std=c++17 -Iinclude -arch=sm_89 \
+  src/backends/cuda/gemm_cuda_naive.cu \
+  tests/unit/test_correctness_cuda.cpp \
+  -o test_cuda_naive
+
+./test_cuda_naive
+
+Successful execution prints OK.
