@@ -6,11 +6,9 @@
 
 set -euo pipefail
 
-# Log manuale: se questo file NON appare, il job non è mai partito
 LOG="/home/u10905938/cuda_naive_debug_${PBS_JOBID}.log"
 mkdir -p /home/u10905938
 
-# Redireziona TUTTO su LOG (stdout+stderr) indipendentemente da PBS
 exec > >(tee -a "$LOG") 2>&1
 
 echo "=== START ==="
@@ -43,4 +41,3 @@ echo "--- Run ---"
 
 echo "=== END OK ==="
 date
-

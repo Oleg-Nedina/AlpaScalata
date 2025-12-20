@@ -1,12 +1,17 @@
+# PBS Job Scripts
 
-## jobs/
+This directory contains PBS scripts for running benchmarks on the HPC cluster.
 
-Script PBS per l’esecuzione su cluster.
+## Key Features
 
-Questa cartella contiene script per:
-- job interattivi di debug
-- job batch per benchmark
-- sweep automatici di configurazioni
+- GPU resource requests
+- CUDA environment setup via Spack
+- Manual logging (PBS does not retain job history)
+- Fully reproducible execution
 
-Permette di eseguire esperimenti riproducibili
-senza modificare manualmente le risorse richieste.
+## Typical Workflow
+
+```bash
+cd ~/AlpaScalata
+. /etc/profile.d/pbs.sh
+qsub jobs/bench_naive_gpu.pbs

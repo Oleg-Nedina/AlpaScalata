@@ -6,7 +6,6 @@
 
 set -euo pipefail
 
-# Log manuale (robusto: PBS non tiene history)
 LOG="/home/u10905938/bench_naive_${PBS_JOBID}.log"
 exec > >(tee -a "$LOG") 2>&1
 
@@ -18,11 +17,9 @@ echo "WORKDIR=$PBS_O_WORKDIR"
 
 cd "$PBS_O_WORKDIR"
 
-# ambiente CUDA
 source /software/spack-v1.0/share/spack/setup-env.sh
 spack load cuda
 
-# cartelle output
 mkdir -p data/results
 mkdir -p plots
 
@@ -33,7 +30,6 @@ nvcc -O3 -std=c++17 -Iinclude -arch=sm_89 \
   -o benchmark_test
 
 echo "[2/4] Quick correctness check (small)"
-# Esegue un test piccolo e veloce (se implementi --check; vedi sotto)
 ./benchmark_test naive float --check 256
 
 echo "[3/4] Run benchmark -> CSV"
