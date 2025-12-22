@@ -1,4 +1,7 @@
+
 #include "gemm/gemm.hpp"
+#include <external/alpaka/alpaka.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -11,35 +14,53 @@
 #include <unordered_map>
 #include <vector>
 
+// --------------------
+// Helpers
+// --------------------
 static std::string lower(std::string s) {
   std::transform(s.begin(), s.end(), s.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+                 [](unsigned char c) { return (char)std::tolower(c); });
   return s;
 }
 
 static std::unordered_map<std::string, std::string>
 parse_prm(const std::string &path) {
-  std::unordered_map<std::string, std::string> m;
-  std::ifstream f(path);
-  if (!f) {
-    std::fprintf(stderr, "Cannot open config file %s\n", path.c_str());
-    std::exit(4);
+  std::unordered_map<std::string, std::string> kv;
+  std::ifstream in(path);
+  if (!in) {
+    std::fprintf(stderr, "ERROR: cannot open config file: %s\n", path.c_str());
+    std::exit(2);
   }
   std::string line;
-  while (std::getline(f, line)) {
-    if (line.empty() || line[0] == '#')
+  while (std::getline(in, line)) {
+    // strip comments
+    auto pos_hash = line.find('#');
+    if (pos_hash != std::string::npos)
+      line.resize(pos_hash);
+
+    // trim whitespace
+    auto trim = [](std::string &x) {
+      auto is_ws = [](unsigned char c) { return std::isspace(c); };
+      while (!x.empty() && is_ws((unsigned char)x.front()))
+        x.erase(x.begin());
+      while (!x.empty() && is_ws((unsigned char)x.back()))
+        x.pop_back();
+    };
+    trim(line);
+    if (line.empty())
       continue;
+
     auto pos = line.find('=');
     if (pos == std::string::npos)
       continue;
 
-    std::string key = lower(line.substr(0, pos));
-    std::string val = line.substr(pos + 1);
-    key.erase(key.find_last_not_of(" \t") + 1);
-    val.erase(0, val.find_first_not_of(" \t"));
-    m[key] = val;
+    std::string k = line.substr(0, pos);
+    std::string v = line.substr(pos + 1);
+    trim(k);
+    trim(v);
+    kv[lower(k)] = v;
   }
-  return m;
+  return kv;
 }
 
 struct RunCfg {
@@ -55,12 +76,14 @@ struct RunCfg {
 static void cpu_ref_gemm(const std::vector<float> &A,
                          const std::vector<float> &B, std::vector<float> &C,
                          int N) {
-  for (int i = 0; i < N; i++) {
-    for (int j = 0; j < N; j++) {
-      float acc = 0.f;
-      for (int k = 0; k < N; k++)
-        acc += A[i * N + k] * B[k * N + j];
-      C[i * N + j] = acc;
+  // naive GEMM for square matrices (N x N)
+  for (int i = 0; i < N; ++i) {
+    for (int j = 0; j < N; ++j) {
+      float acc = 0.0f;
+      for (int k = 0; k < N; ++k) {
+        acc += A[(size_t)i * N + k] * B[(size_t)k * N + j];
+      }
+      C[(size_t)i * N + j] = acc;
     }
   }
 }
@@ -79,6 +102,98 @@ static void check_close(const std::vector<float> &got,
   }
 }
 
+// --------------------
+// Alpaka context (independent from CUDA APIs)
+// --------------------
+namespace alpaka_bench {
+using Dim2 = alpaka::DimInt<2>;
+using Dim1 = alpaka::DimInt<1>;
+using Idx = std::size_t;
+
+#if defined(ALPAKA_ACC_GPU_CUDA_ENABLED) && defined(__CUDACC__)
+using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
+#else
+using Acc = alpaka::AccCpuSerial<Dim2, Idx>;
+#endif
+
+// Host device for staging buffers
+using AccHost = alpaka::AccCpuSerial<Dim2, Idx>;
+
+struct Ctx {
+  decltype(alpaka::getDevByIdx(alpaka::Platform<Acc>{}, 0u)) devAcc;
+  alpaka::Queue<decltype(devAcc), alpaka::Blocking> queue;
+
+  decltype(alpaka::getDevByIdx(alpaka::Platform<AccHost>{}, 0u)) devHost;
+
+  Ctx()
+      : devAcc(alpaka::getDevByIdx(alpaka::Platform<Acc>{}, 0u)), queue(devAcc),
+        devHost(alpaka::getDevByIdx(alpaka::Platform<AccHost>{}, 0u)) {}
+};
+
+// Run the alpaka solver on DEVICE buffers, copying inputs/outputs via Alpaka.
+// NOTE: buffers are 1D contiguous to match CUDA semantics and avoid pitch
+// issues.
+static void run_naive_device(const Ctx &ctx, const float *Ah, const float *Bh,
+                             float *Ch, int N, int warmup, int reps,
+                             float *out_avg_ms /*nullable*/) {
+  Idx const elems = (Idx)N * (Idx)N;
+  Idx const bytes = elems * (Idx)sizeof(float);
+
+  auto const extent1 = alpaka::Vec<Dim1, Idx>{elems};
+
+  // device buffers (contiguous 1D)
+  auto bufA_d = alpaka::allocBuf<float, Idx>(ctx.devAcc, extent1);
+  auto bufB_d = alpaka::allocBuf<float, Idx>(ctx.devAcc, extent1);
+  auto bufC_d = alpaka::allocBuf<float, Idx>(ctx.devAcc, extent1);
+
+  // host staging buffers
+  auto bufA_h = alpaka::allocBuf<float, Idx>(ctx.devHost, extent1);
+  auto bufB_h = alpaka::allocBuf<float, Idx>(ctx.devHost, extent1);
+  auto bufC_h = alpaka::allocBuf<float, Idx>(ctx.devHost, extent1);
+
+  std::memcpy(alpaka::getPtrNative(bufA_h), Ah, (size_t)bytes);
+  std::memcpy(alpaka::getPtrNative(bufB_h), Bh, (size_t)bytes);
+
+  alpaka::memcpy(ctx.queue, bufA_d, bufA_h, extent1);
+  alpaka::memcpy(ctx.queue, bufB_d, bufB_h, extent1);
+  alpaka::wait(ctx.queue);
+
+  gemm::GemmShape s{N, N, N};
+  auto *Ad = alpaka::getPtrNative(bufA_d);
+  auto *Bd = alpaka::getPtrNative(bufB_d);
+  auto *Cd = alpaka::getPtrNative(bufC_d);
+
+  // warmup (not timed)
+  for (int i = 0; i < warmup; ++i) {
+    gemm::gemm_alpaka_naive(Ad, Bd, Cd, s);
+  }
+
+  // timing (kernel only; copies excluded)
+  auto t0 = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < reps; ++i) {
+    gemm::gemm_alpaka_naive(Ad, Bd, Cd, s);
+  }
+  auto t1 = std::chrono::high_resolution_clock::now();
+
+  alpaka::wait(ctx.queue); // ensure all pending memcpy finished (solver does
+                           // its own wait)
+
+  if (out_avg_ms) {
+    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    *out_avg_ms = (float)(ms / reps);
+  }
+
+  // D->H for correctness / output
+  alpaka::memcpy(ctx.queue, bufC_h, bufC_d, extent1);
+  alpaka::wait(ctx.queue);
+  std::memcpy(Ch, alpaka::getPtrNative(bufC_h), (size_t)bytes);
+}
+
+} // namespace alpaka_bench
+
+// --------------------
+// Benchmark logic
+// --------------------
 static float bench_once_ms(int N, const RunCfg &cfg) {
   size_t elems = (size_t)N * (size_t)N;
 
@@ -91,20 +206,11 @@ static float bench_once_ms(int N, const RunCfg &cfg) {
   for (auto &x : B)
     x = dist(rng);
 
-  gemm::GemmShape s{N, N, N};
-
-  // warmup
-  for (int i = 0; i < cfg.warmup; i++)
-    gemm::gemm_alpaka_naive(A.data(), B.data(), C.data(), s);
-
-  // timing
-  auto t0 = std::chrono::high_resolution_clock::now();
-  for (int i = 0; i < cfg.reps; i++)
-    gemm::gemm_alpaka_naive(A.data(), B.data(), C.data(), s);
-  auto t1 = std::chrono::high_resolution_clock::now();
-
-  double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-  return (float)(ms / cfg.reps);
+  alpaka_bench::Ctx ctx;
+  float avg_ms = 0.0f;
+  alpaka_bench::run_naive_device(ctx, A.data(), B.data(), C.data(), N,
+                                 cfg.warmup, cfg.reps, &avg_ms);
+  return avg_ms;
 }
 
 static void check_correctness(int N, const RunCfg &cfg) {
@@ -118,10 +224,12 @@ static void check_correctness(int N, const RunCfg &cfg) {
   for (auto &x : B)
     x = dist(rng);
 
-  gemm::GemmShape s{N, N, N};
-  gemm::gemm_alpaka_naive(A.data(), B.data(), C.data(), s);
-  cpu_ref_gemm(A, B, Ref, N);
+  alpaka_bench::Ctx ctx;
+  alpaka_bench::run_naive_device(ctx, A.data(), B.data(), C.data(), N,
+                                 /*warmup=*/1, /*reps=*/1,
+                                 /*out_avg_ms=*/nullptr);
 
+  cpu_ref_gemm(A, B, Ref, N);
   check_close(C, Ref);
   std::fprintf(stderr, "CHECK_OK\n");
 }
@@ -155,9 +263,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  RunCfg cfg;
   auto prm = parse_prm(config_file);
-
   auto require_key = [&](const char *k) -> std::string {
     std::string key = lower(std::string(k));
     auto it = prm.find(key);
@@ -172,17 +278,37 @@ int main(int argc, char **argv) {
   std::string solver = lower(require_key("solver"));
   std::string prec = lower(require_key("precision"));
 
-  cfg.minN = std::stoi(require_key("min"));
-  cfg.maxN = std::stoi(require_key("max"));
-  cfg.step = std::stoi(require_key("step"));
-  cfg.reps = std::stoi(require_key("reps"));
-  cfg.warmup = std::stoi(require_key("warmup"));
-  cfg.seed = (unsigned)std::stoul(require_key("seed"));
-
-  if (solver != "naive" || prec != "float") {
-    std::fprintf(stderr, "ERROR: supported only naive float for now\n");
-    return 2;
+  // For now we only support naive/float in alpaka TB (as requested).
+  if (solver != "naive") {
+    std::fprintf(stderr,
+                 "ERROR: alpaka benchmark currently supports only solver=naive "
+                 "(got '%s')\n",
+                 solver.c_str());
+    return 5;
   }
+  if (prec != "float" && prec != "fp32") {
+    std::fprintf(stderr,
+                 "ERROR: alpaka benchmark currently supports only "
+                 "precision=float (got '%s')\n",
+                 prec.c_str());
+    return 6;
+  }
+
+  RunCfg cfg;
+  if (prm.count("warmup"))
+    cfg.warmup = std::stoi(prm["warmup"]);
+  if (prm.count("reps"))
+    cfg.reps = std::stoi(prm["reps"]);
+  if (prm.count("batch"))
+    cfg.batch = std::stoi(prm["batch"]);
+  if (prm.count("minn"))
+    cfg.minN = std::stoi(prm["minn"]);
+  if (prm.count("maxn"))
+    cfg.maxN = std::stoi(prm["maxn"]);
+  if (prm.count("step"))
+    cfg.step = std::stoi(prm["step"]);
+  if (prm.count("seed"))
+    cfg.seed = (unsigned)std::stoul(prm["seed"]);
 
   if (checkN > 0)
     check_correctness(checkN, cfg);
