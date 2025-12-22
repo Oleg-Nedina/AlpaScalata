@@ -1,6 +1,11 @@
 #pragma once
+#include <cstddef>
 
+// --- FIX: L'include deve stare QUI, FUORI dal namespace ---
+#ifdef GEMM_ENABLE_ALPAKA
 #include <alpaka/alpaka.hpp>
+#endif
+// ----------------------------------------------------------
 
 namespace gemm {
 
@@ -10,16 +15,13 @@ struct GemmShape {
 
 using GemmFn = void (*)(const float *A, const float *B, float *C, GemmShape s);
 
-// --------------------------------------------------------------------------
-// Solver CUDA (Implementato in gemm_cuda_naive.cu)
-// --------------------------------------------------------------------------
+// Solver CUDA
 void gemm_cuda_naive(const float *A, const float *B, float *C, GemmShape s);
 
-// --------------------------------------------------------------------------
-// Solver Alpaka (Implementato in gemm_alpaka_naive.cpp)
-// --------------------------------------------------------------------------
+// Solver Alpaka
+#ifdef GEMM_ENABLE_ALPAKA
 template <typename TQueue>
-void gemm_alpaka_naive(TQueue &queue, float const *A, float const *B, float *C,
-                       GemmShape shape);
+void gemm_alpaka_naive(TQueue &queue, float const *A, float const *B, float *C, GemmShape shape);
+#endif
 
 } // namespace gemm

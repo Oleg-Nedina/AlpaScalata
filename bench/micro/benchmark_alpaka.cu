@@ -1,3 +1,4 @@
+#define GEMM_ENABLE_ALPAKA 
 #include "gemm/gemm.hpp" // Include l'header corretto
 #include <alpaka/alpaka.hpp>
 #include <chrono>
