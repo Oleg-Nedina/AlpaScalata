@@ -20,16 +20,23 @@ if(ENABLE_CUDA)
 endif()
 
 if(ENABLE_ALPAKA)
+  # 1. Definisci PRIMA le proprietà (consigliato, ma funziona anche dopo se il path è giusto)
+  set_source_files_properties(
+    backends/alpaka/gemm_alpaka_naive.cpp
+    PROPERTIES LANGUAGE CUDA
+  )
+
+  # 2. Aggiungi la libreria usando LO STESSO percorso relativo
   add_library(gemm_backend_alpaka STATIC
     backends/alpaka/gemm_alpaka_naive.cpp
   )
-  target_include_directories(gemm_backend_alpaka PUBLIC ${PROJ_INC_DIRS})
-  target_link_libraries(gemm_backend_alpaka PUBLIC alpaka CUDA::cudart)
 
-  set_source_files_properties(
-    ${PROJECT_SOURCE_DIR}/src/backends/alpaka/gemm_alpaka_naive.cpp
-    PROPERTIES LANGUAGE CUDA
-  )
+  target_include_directories(gemm_backend_alpaka PUBLIC ${PROJ_INC_DIRS})
+
+  # Nota: assicurati che CUDA::cudart sia disponibile.
+  # Se usi Alpaka con backend CUDA, di solito basta linkare Alpaka se è configurato bene,
+  # ma lasciare CUDA::cudart male non fa.
+  target_link_libraries(gemm_backend_alpaka PUBLIC alpaka CUDA::cudart)
 
   target_compile_options(gemm_backend_alpaka PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --extended-lambda>
