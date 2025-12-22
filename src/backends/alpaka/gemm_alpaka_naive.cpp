@@ -1,6 +1,6 @@
 // src/backends/alpaka/gemm_alpaka_naive.cpp
 #include "gemm/gemm.hpp"
-#include <external/alpaka/alpaka.hpp>
+#include <alpaka/alpaka.hpp>
 #include <stdexcept>
 
 namespace gemm {

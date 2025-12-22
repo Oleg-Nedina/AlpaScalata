@@ -1,6 +1,8 @@
-
 cmake_minimum_required(VERSION 3.25)
 
+# Se vuoi che CUDA sia "first class" già dal project(), puoi fare:
+# project(AlpaScalata LANGUAGES CXX CUDA)
+# ma lo facciamo condizionale con enable_language(CUDA) come prima.
 project(AlpaScalata LANGUAGES CXX)
 
 option(ENABLE_CUDA   "Build CUDA backend + CUDA benchmark executable" ON)
@@ -20,22 +22,19 @@ if(ENABLE_CUDA)
   enable_language(CUDA)
   find_package(CUDAToolkit REQUIRED)
 
-  # IMPORTANT on clusters: avoid "Failed to detect a default CUDA architecture"
-  # You can override at configure time with -DCMAKE_CUDA_ARCHITECTURES=89 (L4) etc.
+  # Arch: imposta default se non specificata a configure time
   if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES 89 CACHE STRING "CUDA archs" FORCE)
   endif()
 
-  # Determine CUDA root for rpath:
-  # Prefer CUDA_HOME if given, else fall back to CUDAToolkit_ROOT (what you already pass)
+  # Root CUDA per RPATH
   if(NOT DEFINED CUDA_HOME)
     if(DEFINED CUDAToolkit_ROOT)
       set(CUDA_HOME "${CUDAToolkit_ROOT}" CACHE PATH "CUDA Toolkit root for RPATH" FORCE)
     endif()
   endif()
 
-  # Global RPATH for all targets (executables shared libs)
-  # This makes benchmark_cuda work even after `unset LD_LIBRARY_PATH`.
+  # RPATH globale (aiuta tantissimo su cluster)
   if(DEFINED CUDA_HOME)
     list(APPEND CMAKE_BUILD_RPATH
       "${CUDA_HOME}/targets/x86_64-linux/lib"
@@ -50,34 +49,59 @@ if(ENABLE_CUDA)
 endif()
 
 # -----------------------
-# Helper: add CUDA RUNPATH to a specific target (optional)
-# Use this if you want to enforce rpath only for CUDA targets, not globally.
-# With the global CMAKE_BUILD_RPATH above, calling this is usually not necessary.
-# -----------------------
-function(target_add_cuda_runpath tgt)
-  if(ENABLE_CUDA AND DEFINED CUDA_HOME)
-    set(_rpath
-      "${CUDA_HOME}/targets/x86_64-linux/lib"
-      "${CUDA_HOME}/lib64"
-    )
-    set_target_properties(${tgt} PROPERTIES
-      BUILD_RPATH   "${_rpath}"
-      INSTALL_RPATH "${_rpath}"
-    )
-  endif()
-endfunction()
-
-# -----------------------
 # Alpaka (optional)
 # -----------------------
 if(ENABLE_ALPAKA)
+  # Alpaka deve avere il suo CMakeLists dentro external/alpaka
   add_subdirectory(external/alpaka)
 endif()
 
+# -----------------------
 # Common headers
+# -----------------------
 add_library(gemm_headers INTERFACE)
-target_include_directories(gemm_headers INTERFACE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(gemm_headers INTERFACE
+  ${CMAKE_SOURCE_DIR}/include
+)
 
-# Source libraries + benchmarks
+# -----------------------
+# Subdirs
+# -----------------------
 add_subdirectory(src)
 add_subdirectory(bench)
+
+# -----------------------
+# IMPORTANT: Force specific Alpaka TU to compile with NVCC when CUDA backend is enabled
+# -----------------------
+if(ENABLE_ALPAKA AND ENABLE_CUDA)
+  # Questi due file sono .cpp ma DEVONO essere compilati da nvcc
+  # quando alpaka usa TagGpuCudaRt (altrimenti ottieni gli errori "compiler has to support CUDA").
+  set(_alpaka_cuda_tus
+    "${CMAKE_SOURCE_DIR}/src/backends/alpaka/gemm_alpaka_naive.cpp"
+    "${CMAKE_SOURCE_DIR}/bench/micro/benchmark_alpaka.cpp"
+  )
+
+  foreach(_tu IN LISTS _alpaka_cuda_tus)
+    if(EXISTS "${_tu}")
+      set_source_files_properties("${_tu}" PROPERTIES LANGUAGE CUDA)
+    endif()
+  endforeach()
+
+  # Linker language: evita che il link venga fatto come CXX puro
+  # (utile soprattutto per gli executable bench).
+  if(TARGET gemm_backend_alpaka)
+    set_target_properties(gemm_backend_alpaka PROPERTIES LINKER_LANGUAGE CUDA)
+  endif()
+
+  if(TARGET benchmark_alpaka)
+    set_target_properties(benchmark_alpaka PROPERTIES LINKER_LANGUAGE CUDA)
+  endif()
+endif()
+
+if(ENABLE_CUDA AND DEFINED CUDA_HOME)
+  set_target_properties(benchmark_cuda PROPERTIES
+    BUILD_RPATH   "${CUDA_HOME}/targets/x86_64-linux/lib;${CUDA_HOME}/lib64"
+    INSTALL_RPATH "${CUDA_HOME}/targets/x86_64-linux/lib;${CUDA_HOME}/lib64"
+  )
+endif()
+

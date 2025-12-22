@@ -1,6 +1,5 @@
-
 #include "gemm/gemm.hpp"
-#include <external/alpaka/alpaka.hpp>
+#include <alpaka/alpaka.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -73,9 +72,8 @@ struct RunCfg {
   unsigned seed = 123;
 };
 
-static void cpu_ref_gemm(const std::vector<float> &A,
-                         const std::vector<float> &B, std::vector<float> &C,
-                         int N) {
+static void cpu_ref_gemm(const std::vector<float> &A, const std::vector<float> &B,
+                         std::vector<float> &C, int N) {
   // naive GEMM for square matrices (N x N)
   for (int i = 0; i < N; ++i) {
     for (int j = 0; j < N; ++j) {
@@ -108,7 +106,7 @@ static void check_close(const std::vector<float> &got,
 namespace alpaka_bench {
 using Dim2 = alpaka::DimInt<2>;
 using Dim1 = alpaka::DimInt<1>;
-using Idx = std::size_t;
+using Idx  = std::size_t;
 
 #if defined(ALPAKA_ACC_GPU_CUDA_ENABLED) && defined(__CUDACC__)
 using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
@@ -126,15 +124,16 @@ struct Ctx {
   decltype(alpaka::getDevByIdx(alpaka::Platform<AccHost>{}, 0u)) devHost;
 
   Ctx()
-      : devAcc(alpaka::getDevByIdx(alpaka::Platform<Acc>{}, 0u)), queue(devAcc),
+      : devAcc(alpaka::getDevByIdx(alpaka::Platform<Acc>{}, 0u)),
+        queue(devAcc),
         devHost(alpaka::getDevByIdx(alpaka::Platform<AccHost>{}, 0u)) {}
 };
 
 // Run the alpaka solver on DEVICE buffers, copying inputs/outputs via Alpaka.
-// NOTE: buffers are 1D contiguous to match CUDA semantics and avoid pitch
-// issues.
-static void run_naive_device(const Ctx &ctx, const float *Ah, const float *Bh,
-                             float *Ch, int N, int warmup, int reps,
+// NOTE: buffers are 1D contiguous to match CUDA semantics and avoid pitch issues.
+static void run_naive_device(Ctx &ctx,
+                             const float *Ah, const float *Bh, float *Ch,
+                             int N, int warmup, int reps,
                              float *out_avg_ms /*nullable*/) {
   Idx const elems = (Idx)N * (Idx)N;
   Idx const bytes = elems * (Idx)sizeof(float);
@@ -175,8 +174,7 @@ static void run_naive_device(const Ctx &ctx, const float *Ah, const float *Bh,
   }
   auto t1 = std::chrono::high_resolution_clock::now();
 
-  alpaka::wait(ctx.queue); // ensure all pending memcpy finished (solver does
-                           // its own wait)
+  alpaka::wait(ctx.queue); // ensure all pending memcpy finished (solver does its own wait)
 
   if (out_avg_ms) {
     double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -208,8 +206,8 @@ static float bench_once_ms(int N, const RunCfg &cfg) {
 
   alpaka_bench::Ctx ctx;
   float avg_ms = 0.0f;
-  alpaka_bench::run_naive_device(ctx, A.data(), B.data(), C.data(), N,
-                                 cfg.warmup, cfg.reps, &avg_ms);
+  alpaka_bench::run_naive_device(ctx, A.data(), B.data(), C.data(),
+                                 N, cfg.warmup, cfg.reps, &avg_ms);
   return avg_ms;
 }
 
@@ -225,9 +223,8 @@ static void check_correctness(int N, const RunCfg &cfg) {
     x = dist(rng);
 
   alpaka_bench::Ctx ctx;
-  alpaka_bench::run_naive_device(ctx, A.data(), B.data(), C.data(), N,
-                                 /*warmup=*/1, /*reps=*/1,
-                                 /*out_avg_ms=*/nullptr);
+  alpaka_bench::run_naive_device(ctx, A.data(), B.data(), C.data(),
+                                 N, /*warmup=*/1, /*reps=*/1, /*out_avg_ms=*/nullptr);
 
   cpu_ref_gemm(A, B, Ref, N);
   check_close(C, Ref);
@@ -281,34 +278,25 @@ int main(int argc, char **argv) {
   // For now we only support naive/float in alpaka TB (as requested).
   if (solver != "naive") {
     std::fprintf(stderr,
-                 "ERROR: alpaka benchmark currently supports only solver=naive "
-                 "(got '%s')\n",
+                 "ERROR: alpaka benchmark currently supports only solver=naive (got '%s')\n",
                  solver.c_str());
     return 5;
   }
   if (prec != "float" && prec != "fp32") {
     std::fprintf(stderr,
-                 "ERROR: alpaka benchmark currently supports only "
-                 "precision=float (got '%s')\n",
+                 "ERROR: alpaka benchmark currently supports only precision=float (got '%s')\n",
                  prec.c_str());
     return 6;
   }
 
   RunCfg cfg;
-  if (prm.count("warmup"))
-    cfg.warmup = std::stoi(prm["warmup"]);
-  if (prm.count("reps"))
-    cfg.reps = std::stoi(prm["reps"]);
-  if (prm.count("batch"))
-    cfg.batch = std::stoi(prm["batch"]);
-  if (prm.count("minn"))
-    cfg.minN = std::stoi(prm["minn"]);
-  if (prm.count("maxn"))
-    cfg.maxN = std::stoi(prm["maxn"]);
-  if (prm.count("step"))
-    cfg.step = std::stoi(prm["step"]);
-  if (prm.count("seed"))
-    cfg.seed = (unsigned)std::stoul(prm["seed"]);
+  if (prm.count("warmup")) cfg.warmup = std::stoi(prm["warmup"]);
+  if (prm.count("reps"))   cfg.reps   = std::stoi(prm["reps"]);
+  if (prm.count("batch"))  cfg.batch  = std::stoi(prm["batch"]);
+  if (prm.count("minn"))   cfg.minN   = std::stoi(prm["minn"]);
+  if (prm.count("maxn"))   cfg.maxN   = std::stoi(prm["maxn"]);
+  if (prm.count("step"))   cfg.step   = std::stoi(prm["step"]);
+  if (prm.count("seed"))   cfg.seed   = (unsigned)std::stoul(prm["seed"]);
 
   if (checkN > 0)
     check_correctness(checkN, cfg);
@@ -324,3 +312,4 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
+
