@@ -28,3 +28,16 @@ if(ENABLE_ALPAKA)
   endif()
 endif()
 
+
+
+add_library(gemm_backend_alpaka
+  gemm_alpaka_naive.cpp
+)
+
+target_link_libraries(gemm_backend_alpaka PUBLIC gemm_headers alpaka::alpaka)
+
+if(alpaka_ACC_GPU_CUDA_ENABLE)
+  set_source_files_properties(gemm_alpaka_naive.cpp PROPERTIES LANGUAGE CUDA)
+endif()
+
+
