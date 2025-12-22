@@ -1,5 +1,0 @@
-Solver,Precision,Size,Time_ms,GFLOPs
-naive,float,64,0.162760,3.221238
-naive,float,128,1.733767,2.419185
-naive,float,192,5.664756,2.498921
-naive,float,256,19.802080,1.694490
