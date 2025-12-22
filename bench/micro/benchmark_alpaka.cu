@@ -1,4 +1,4 @@
-#define GEMM_ENABLE_ALPAKA 
+#define GEMM_ENABLE_ALPAKA
 #include "gemm/gemm.hpp" // Include l'header corretto
 #include <alpaka/alpaka.hpp>
 #include <chrono>
@@ -12,15 +12,10 @@ namespace alpaka_bench {
 using Idx = std::size_t;
 using Dim2 = alpaka::DimInt<2>;
 
-// Configurazione Acceleratore (Deve matchare con quella in
-// gemm_alpaka_naive.cpp)
-#if defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
 using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
 using PlatformAcc = alpaka::PlatformCudaRt;
-#else
-using Acc = alpaka::AccCpuSerial<Dim2, Idx>;
-using PlatformAcc = alpaka::PlatformCpu;
-#endif
+
+using PlatformHost = alpaka::PlatformCpu;
 
 using PlatformHost = alpaka::PlatformCpu;
 

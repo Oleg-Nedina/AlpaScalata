@@ -1,32 +1,23 @@
 // Definiamo la macro PRIMA degli include
-#define GEMM_ENABLE_ALPAKA 
+#define GEMM_ENABLE_ALPAKA
 
 #include "gemm/gemm.hpp"
-// Alpaka è già incluso da gemm.hpp se la macro è attiva, ma ripeterlo qui non fa male (se fuori dal namespace)
+// Alpaka è già incluso da gemm.hpp se la macro è attiva, ma ripeterlo qui non
+// fa male (se fuori dal namespace)
 #include <alpaka/alpaka.hpp>
 
 namespace gemm {
 
-using Idx  = std::size_t;
+using Idx = std::size_t;
 using Dim2 = alpaka::DimInt<2>;
 
-// Configurazione GPU
-#if defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
-using Acc         = alpaka::AccGpuCudaRt<Dim2, Idx>;
+using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
 using PlatformAcc = alpaka::PlatformCudaRt;
-#else
-// Fallback CPU se CUDA non è trovato
-using Acc         = alpaka::AccCpuSerial<Dim2, Idx>;
-using PlatformAcc = alpaka::PlatformCpu;
-#endif
 
 struct GemmNaiveKernel {
   template <typename TAcc>
-  ALPAKA_FN_ACC void operator()(TAcc const& acc,
-                                float const* A,
-                                float const* B,
-                                float* C,
-                                int M, int N, int K) const {
+  ALPAKA_FN_ACC void operator()(TAcc const &acc, float const *A, float const *B,
+                                float *C, int M, int N, int K) const {
     auto const idx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
     int row = (int)idx[0];
     int col = (int)idx[1];
@@ -42,26 +33,30 @@ struct GemmNaiveKernel {
 };
 
 template <typename TQueue>
-void gemm_alpaka_naive(TQueue& queue, float const* A, float const* B, float* C, GemmShape shape) {
+void gemm_alpaka_naive(TQueue &queue, float const *A, float const *B, float *C,
+                       GemmShape shape) {
   constexpr Idx TX = 16;
   constexpr Idx TY = 16;
 
   Idx blocksY = (Idx)((shape.m + (int)TY - 1) / (int)TY);
   Idx blocksX = (Idx)((shape.n + (int)TX - 1) / (int)TX);
 
-  auto const gridThreadExtent  = alpaka::Vec<Dim2, Idx>{blocksY, blocksX};
+  auto const gridThreadExtent = alpaka::Vec<Dim2, Idx>{blocksY, blocksX};
   auto const blockThreadExtent = alpaka::Vec<Dim2, Idx>{TY, TX};
-  auto const elemExtent        = alpaka::Vec<Dim2, Idx>{1u, 1u};
+  auto const elemExtent = alpaka::Vec<Dim2, Idx>{1u, 1u};
 
-  alpaka::WorkDivMembers<Dim2, Idx> workDiv(gridThreadExtent, blockThreadExtent, elemExtent);
+  alpaka::WorkDivMembers<Dim2, Idx> workDiv(gridThreadExtent, blockThreadExtent,
+                                            elemExtent);
   GemmNaiveKernel kernel;
-  
+
   alpaka::exec<Acc>(queue, workDiv, kernel, A, B, C, shape.m, shape.n, shape.k);
   alpaka::wait(queue);
 }
 
 // Istanziazione Esplicita
 using QueueType = alpaka::Queue<Acc, alpaka::Blocking>;
-template void gemm_alpaka_naive<QueueType>(QueueType& queue, float const* A, float const* B, float* C, GemmShape shape);
+template void gemm_alpaka_naive<QueueType>(QueueType &queue, float const *A,
+                                           float const *B, float *C,
+                                           GemmShape shape);
 
 } // namespace gemm
