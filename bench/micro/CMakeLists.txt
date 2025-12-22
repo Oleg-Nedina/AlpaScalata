@@ -1,35 +1,32 @@
-
 # bench/micro/CMakeLists.txt
 
-# CUDA benchmark (esiste già: benchmark_test.cu)
-if(ENABLE_CUDA AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmark_test.cu")
+# CUDA benchmark exe
+if(ENABLE_CUDA)
   add_executable(benchmark_cuda
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmark_test.cu
+    benchmark_test.cu
   )
-  target_link_libraries(benchmark_cuda PRIVATE gemm_headers)
-
-  if(TARGET gemm_backend_cuda)
-    target_link_libraries(benchmark_cuda PRIVATE gemm_backend_cuda)
-  endif()
-
-  target_link_libraries(benchmark_cuda PRIVATE CUDA::cudart)
-  target_add_cuda_runpath(benchmark_cuda)
+  target_link_libraries(benchmark_cuda PRIVATE gemm_backend_cuda CUDA::cudart)
+  target_compile_features(benchmark_cuda PRIVATE cxx_std_20)
 endif()
 
-# Alpaka benchmark (lo aggiungeremo dopo, quando esiste il file)
-if(ENABLE_ALPAKA AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmark_alpaka.cpp")
+# Alpaka benchmark exe
+if(ENABLE_ALPAKA)
   add_executable(benchmark_alpaka
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmark_alpaka.cpp
+    benchmark_alpaka.cpp
   )
-  target_link_libraries(benchmark_alpaka PRIVATE gemm_headers)
+  target_link_libraries(benchmark_alpaka PRIVATE gemm_backend_alpaka alpaka::alpaka)
+  target_compile_features(benchmark_alpaka PRIVATE cxx_std_20)
 
-  if(TARGET gemm_backend_alpaka)
-    target_link_libraries(benchmark_alpaka PRIVATE gemm_backend_alpaka)
-  endif()
-
-  # se Alpaka usa CUDA backend sul cluster
+  # Se Alpaka CUDA è abilitato e CUDA è abilitato, benchmark_alpaka.cpp
+  # DEVE essere compilato come CUDA (nvcc), anche se è .cpp.
   if(ENABLE_CUDA)
-    target_link_libraries(benchmark_alpaka PRIVATE CUDA::cudart)
-    target_add_cuda_runpath(benchmark_alpaka)
+    if(DEFINED alpaka_ACC_GPU_CUDA_ENABLE AND alpaka_ACC_GPU_CUDA_ENABLE)
+      set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmark_alpaka.cpp
+        PROPERTIES LANGUAGE CUDA
+      )
+      set_target_properties(benchmark_alpaka PROPERTIES LINKER_LANGUAGE CUDA)
+    endif()
   endif()
 endif()
+
