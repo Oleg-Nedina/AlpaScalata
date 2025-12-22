@@ -1,59 +1,46 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.24)
 
-project(AlpaScalata LANGUAGES CXX)
+project(AlpaScalata LANGUAGES CXX CUDA)
 
-option(ENABLE_CUDA   "Build CUDA backend/bench" ON)
-option(ENABLE_ALPAKA "Build Alpaka backend/bench" ON)
+option(ENABLE_CUDA   "Build CUDA backend"   ON)
+option(ENABLE_ALPAKA "Build Alpaka backend" ON)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+# Default arch if not set from command line
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES 89)
 endif()
 
-# -----------------------
-# CUDA toolchain
-# -----------------------
-if(ENABLE_CUDA)
-  enable_language(CUDA)
+# CUDA Toolkit
+if(ENABLE_CUDA OR ENABLE_ALPAKA)
   find_package(CUDAToolkit REQUIRED)
+endif()
 
-  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    # override with -DCMAKE_CUDA_ARCHITECTURES=89 etc.
-    set(CMAKE_CUDA_ARCHITECTURES 89 CACHE STRING "CUDA archs" FORCE)
+# Small helper: embed CUDA lib path in RUNPATH so LD_LIBRARY_PATH is not needed
+function(target_add_cuda_runpath tgt)
+  if(NOT TARGET ${tgt})
+    message(FATAL_ERROR "target_add_cuda_runpath: target '${tgt}' not found")
+  endif()
+  if(DEFINED CUDAToolkit_LIBRARY_DIR)
+    set(_cuda_libdir "${CUDAToolkit_LIBRARY_DIR}")
+  elseif(DEFINED CUDAToolkit_ROOT)
+    set(_cuda_libdir "${CUDAToolkit_ROOT}/lib64")
+  else()
+    set(_cuda_libdir "")
   endif()
 
-  # RPATH per cluster (build + install)
-  # (funziona senza funzioni custom)
-  list(APPEND CMAKE_BUILD_RPATH
-    "${CUDAToolkit_LIBRARY_DIR}"
-  )
-  list(APPEND CMAKE_INSTALL_RPATH
-    "${CUDAToolkit_LIBRARY_DIR}"
-  )
-  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
-endif()
+  if(_cuda_libdir)
+    set_property(TARGET ${tgt} APPEND PROPERTY BUILD_RPATH "${_cuda_libdir}")
+    set_property(TARGET ${tgt} APPEND PROPERTY INSTALL_RPATH "${_cuda_libdir}")
+  endif()
+endfunction()
 
-# -----------------------
-# Alpaka
-# -----------------------
-if(ENABLE_ALPAKA)
-  # Qui serve che external/alpaka contenga CMakeLists.txt (repo alpaka completo)
-  add_subdirectory(external/alpaka)
-endif()
-
-# -----------------------
-# Common headers (tuo include/)
-# -----------------------
-add_library(gemm_headers INTERFACE)
-target_include_directories(gemm_headers INTERFACE
-  ${CMAKE_SOURCE_DIR}/include
-)
-
-# -----------------------
-# Subdirs
-# -----------------------
 add_subdirectory(src)
+add_subdirectory(bench/micro)
 
-add_subdirectory(bench)
