@@ -1,59 +1,67 @@
+````md
 # 🚀 AlpaScalata — GPU Build & Run Guide (CUDA + Alpaka)
 
-Questa guida descrive **passo per passo** come compilare ed eseguire **AlpaScalata** su un **nodo GPU** del cluster, abilitando **sia CUDA nativo che Alpaka**.
+This guide explains **step-by-step** how to configure, build, and run **AlpaScalata** on a **GPU node** of the cluster, enabling **both native CUDA and Alpaka**.
 
-L’obiettivo è:
-- evitare errori ricorrenti (CUDA, architetture, path)
-- garantire che **entrambi i benchmark (`cuda` e `alpaka`) vengano sempre costruiti**
-- fornire un riferimento unico per tutti i membri del team
+Goals:
+- avoid recurring CUDA/path/arch errors
+- always build **both benchmark executables** (`benchmark_cuda` and `benchmark_alpaka`)
+- provide a single reference for the whole team
 
 ---
 
-## 0️⃣ Prerequisiti
+## 0️⃣ Prerequisites
 
-Devi essere su un **GPU node** (non login).
+You must be on a **GPU node** (not the login node).
 
-Verifica:
+Verify:
 ```bash
 nvidia-smi
 ````
-
-Devi vedere almeno una GPU (es. NVIDIA L4).
+You should see at least one GPU (e.g. **NVIDIA L4**).
 
 ---
 
-## 1️⃣ Setup ambiente CUDA (Spack)
+## 1️⃣ CUDA Environment Setup (Spack)
 
-Sul cluster CUDA è fornito tramite **Spack**.
+On the cluster, CUDA is provided via **Spack**.
+
+> ⚠️ Use the REAL CUDA path (no `-XXXX` placeholders).
 
 ```bash
 export CUDA_HOME=/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap
-export PATH=$CUDA_HOME/bin:$PATH
+export PATH="$CUDA_HOME/bin:$PATH"
 ```
 
-Verifica:
+Sanity checks:
 
 ```bash
 nvcc --version
 nvidia-smi
 ```
 
+Optional (recommended) extra check:
+
+```bash
+ls -l "$CUDA_HOME/bin/nvcc"
+```
+
 ---
 
-## 2️⃣ Vai nella root del progetto
+## 2️⃣ Go to the Project Root
 
-⚠️ **Fondamentale**: tutti i comandi CMake devono essere lanciati dalla **root del repository**, dove si trova `CMakeLists.txt`.
+⚠️ All CMake commands must be run from the **repo root**, where `CMakeLists.txt` lives.
 
 ```bash
 cd ~/AlpaScalata
 ls CMakeLists.txt
 ```
 
-Se `CMakeLists.txt` non esiste → sei nella directory sbagliata.
+If `CMakeLists.txt` is missing → you are in the wrong directory.
 
 ---
 
-## 3️⃣ Pulizia build precedente (sempre consigliata)
+## 3️⃣ Clean Previous Build (recommended)
 
 ```bash
 rm -rf build
@@ -61,23 +69,17 @@ rm -rf build
 
 ---
 
-## 4️⃣ Configurazione CMake (CUDA + Alpaka)
+## 4️⃣ Configure with CMake (CUDA + Alpaka)
 
-### Architettura GPU
+### GPU architecture
 
-* NVIDIA **L4** → compute capability **8.9**
-* Impostiamo esplicitamente:
+For **NVIDIA L4**, compute capability is **8.9** → set:
 
 ```text
 CMAKE_CUDA_ARCHITECTURES=89
 ```
 
-### Configurazione completa
-
-Questa configurazione **abilita sempre entrambi**:
-
-* backend CUDA
-* backend Alpaka (CPU + GPU)
+### Full configure command (build BOTH backends + BOTH benchmarks)
 
 ```bash
 cmake -S . -B build \
@@ -86,12 +88,12 @@ cmake -S . -B build \
   -DENABLE_ALPAKA=ON \
   -Dalpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE=ON \
   -Dalpaka_ACC_GPU_CUDA_ENABLE=ON \
-  -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
-  -DCUDAToolkit_ROOT=$CUDA_HOME \
+  -DCMAKE_CUDA_COMPILER="$CUDA_HOME/bin/nvcc" \
+  -DCUDAToolkit_ROOT="$CUDA_HOME" \
   -DCMAKE_CUDA_ARCHITECTURES=89
 ```
 
-⚠️ Se **questa fase fallisce**, non proseguire.
+✅ If this step fails, **stop here** and fix the configuration first.
 
 ---
 
@@ -101,7 +103,7 @@ cmake -S . -B build \
 cmake --build build -j
 ```
 
-Target attesi:
+Expected targets include:
 
 * `gemm_backend_cuda`
 * `gemm_backend_alpaka`
@@ -110,13 +112,13 @@ Target attesi:
 
 ---
 
-## 6️⃣ Verifica eseguibili generati
+## 6️⃣ Verify generated executables
 
 ```bash
 ls build/bench/micro/
 ```
 
-Devi vedere almeno:
+You must see:
 
 ```text
 benchmark_cuda
@@ -125,9 +127,9 @@ benchmark_alpaka
 
 ---
 
-## 7️⃣ Run benchmark Alpaka (GPU)
+## 7️⃣ Run Alpaka Benchmark (GPU)
 
-### Test di correttezza (consigliato)
+### Correctness check (recommended)
 
 ```bash
 unset LD_LIBRARY_PATH
@@ -137,34 +139,24 @@ unset LD_LIBRARY_PATH
   --check 64
 ```
 
-Output atteso:
+Expected output includes:
 
 ```text
 CHECK_OK
 ```
 
----
-
-### Benchmark Alpaka (GPU)
+### Run benchmark (CSV printed to stdout)
 
 ```bash
 ./build/bench/micro/benchmark_alpaka \
   --config config/alpaka_naive_float_small.prm
 ```
 
-Output (CSV su stdout):
-
-```text
-Solver,Precision,Size,Time_ms,GFLOPs
-naive,float,256,15.279561,2.196034
-...
-```
-
 ---
 
-## 8️⃣ Run benchmark CUDA nativo
+## 8️⃣ Run Native CUDA Benchmark
 
-### Test di correttezza
+### Correctness check
 
 ```bash
 unset LD_LIBRARY_PATH
@@ -174,9 +166,7 @@ unset LD_LIBRARY_PATH
   --check 64
 ```
 
----
-
-### Benchmark CUDA
+### Run benchmark
 
 ```bash
 ./build/bench/micro/benchmark_cuda \
@@ -185,10 +175,9 @@ unset LD_LIBRARY_PATH
 
 ---
 
-## 9️⃣ Salvare i risultati per plotting
+## 9️⃣ Save results for plotting
 
-I benchmark **scrivono su stdout**.
-Per salvare i risultati:
+Benchmarks print CSV to **stdout**. Redirect to files under `data/results/`.
 
 ```bash
 mkdir -p data/results
@@ -202,7 +191,7 @@ mkdir -p data/results
   > data/results/alpaka_naive_float_gpu.csv
 ```
 
-### CUDA nativo
+### CUDA (GPU)
 
 ```bash
 ./build/bench/micro/benchmark_cuda \
@@ -212,12 +201,12 @@ mkdir -p data/results
 
 ---
 
-## 🔁 Workflow completo (TL;DR)
+## 🔁 Full Workflow (TL;DR)
 
 ```bash
-# su GPU node
-export CUDA_HOME=...
-export PATH=$CUDA_HOME/bin:$PATH
+# On a GPU node
+export CUDA_HOME=/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap
+export PATH="$CUDA_HOME/bin:$PATH"
 
 cd ~/AlpaScalata
 rm -rf build
@@ -227,8 +216,8 @@ cmake -S . -B build \
   -DENABLE_CUDA=ON -DENABLE_ALPAKA=ON \
   -Dalpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE=ON \
   -Dalpaka_ACC_GPU_CUDA_ENABLE=ON \
-  -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
-  -DCUDAToolkit_ROOT=$CUDA_HOME \
+  -DCMAKE_CUDA_COMPILER="$CUDA_HOME/bin/nvcc" \
+  -DCUDAToolkit_ROOT="$CUDA_HOME" \
   -DCMAKE_CUDA_ARCHITECTURES=89
 
 cmake --build build -j
@@ -238,9 +227,12 @@ unset LD_LIBRARY_PATH
 ./build/bench/micro/benchmark_alpaka --config config/alpaka_naive_float_small.prm --check 64
 ./build/bench/micro/benchmark_cuda   --config config/cuda_naive_float_small.prm   --check 64
 
+mkdir -p data/results
+
 ./build/bench/micro/benchmark_alpaka --config config/alpaka_naive_float_small.prm \
   > data/results/alpaka_naive_float_gpu.csv
 
 ./build/bench/micro/benchmark_cuda --config config/cuda_naive_float_small.prm \
   > data/results/cuda_naive_float_gpu.csv
+```
 
