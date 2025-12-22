@@ -1,6 +1,6 @@
-
 #pragma once
-#include <cstddef>
+
+#include <alpaka/alpaka.hpp>
 
 namespace gemm {
 
@@ -10,15 +10,16 @@ struct GemmShape {
 
 using GemmFn = void (*)(const float *A, const float *B, float *C, GemmShape s);
 
-// Solver CUDA
+// --------------------------------------------------------------------------
+// Solver CUDA (Implementato in gemm_cuda_naive.cu)
+// --------------------------------------------------------------------------
 void gemm_cuda_naive(const float *A, const float *B, float *C, GemmShape s);
-// solver alpaka
 
+// --------------------------------------------------------------------------
+// Solver Alpaka (Implementato in gemm_alpaka_naive.cpp)
+// --------------------------------------------------------------------------
 template <typename TQueue>
 void gemm_alpaka_naive(TQueue &queue, float const *A, float const *B, float *C,
                        GemmShape shape);
-// void gemm_cuda_tiled(const float* A, const float* B, float* C, GemmShape s);
-// void gemm_alpaka_naive(const float* A, const float* B, float* C, GemmShape
-// s);
 
 } // namespace gemm
