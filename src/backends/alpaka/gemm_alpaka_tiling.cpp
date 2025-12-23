@@ -8,110 +8,112 @@ using Idx = std::size_t;
 using Dim2 = alpaka::DimInt<2>;
 using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
 
-// Definiamo la dimensione del TILE
-// Deve corrispondere alla dimensione del blocco di thread per questo algoritmo
-// "semplice"
-constexpr int TILE_SIZE = 16;
-
-struct GemmTiledKernel {
+// 1. IL KERNEL (Templatizzato su TILE_SIZE)
+template <int TILE_SIZE> struct GemmTiledKernel {
   template <typename TAcc>
   ALPAKA_FN_ACC void operator()(TAcc const &acc, float const *A, float const *B,
                                 float *C, int M, int N, int K) const {
 
-    // 1. Indici Globali (della matrice finale C)
     auto const globalIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
-    int globalRow = globalIdx[0];
-    int globalCol = globalIdx[1];
-
-    // 2. Indici Locali (all'interno del blocco/tile)
     auto const localIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
-    int localRow = localIdx[0]; // threadIdx.y
-    int localCol = localIdx[1]; // threadIdx.x
+    int localRow = localIdx[0];
+    int localCol = localIdx[1];
 
-    // 3. Dichiarazione Shared Memory (Static)
-    // In CUDA: __shared__ float As[TILE_SIZE][TILE_SIZE];
+    // Shared Memory STATICA
     float (&As)[TILE_SIZE][TILE_SIZE] =
         alpaka::declareSharedVar<float[TILE_SIZE][TILE_SIZE], __COUNTER__>(acc);
     float (&Bs)[TILE_SIZE][TILE_SIZE] =
         alpaka::declareSharedVar<float[TILE_SIZE][TILE_SIZE], __COUNTER__>(acc);
 
     float accVal = 0.0f;
-
-    // 4. Loop sui Tiles
-    // Scorriamo le sottomatrici di A e B lungo la dimensione K a passi di
-    // TILE_SIZE
     int numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
 
     for (int t = 0; t < numTiles; ++t) {
-
-      // --- FASE DI CARICAMENTO (Cooperative Loading) ---
-
-      // Indice colonna della tile corrente di A / riga della tile corrente di B
       int tiledK = t * TILE_SIZE;
 
-      // Carichiamo A nel buffer condiviso As
-      // Controllo bounds: siamo dentro la matrice A?
-      if (globalRow < M && (tiledK + localCol) < K) {
-        As[localRow][localCol] = A[globalRow * K + (tiledK + localCol)];
+      // Caricamento A
+      if (globalIdx[0] < M && (tiledK + localCol) < K) {
+        As[localRow][localCol] = A[globalIdx[0] * K + (tiledK + localCol)];
       } else {
         As[localRow][localCol] = 0.0f;
       }
 
-      // Carichiamo B nel buffer condiviso Bs
-      // Controllo bounds: siamo dentro la matrice B?
-      if ((tiledK + localRow) < K && globalCol < N) {
-        Bs[localRow][localCol] = B[(tiledK + localRow) * N + globalCol];
+      // Caricamento B
+      if ((tiledK + localRow) < K && globalIdx[1] < N) {
+        Bs[localRow][localCol] = B[(tiledK + localRow) * N + globalIdx[1]];
       } else {
         Bs[localRow][localCol] = 0.0f;
       }
 
-      // --- SINCRONIZZAZIONE (Wait for Load) ---
-      // Assicuriamo che tutti i thread abbiano caricato i dati prima di
-      // calcolare
       alpaka::syncBlockThreads(acc);
 
-      // --- FASE DI CALCOLO (Compute) ---
+      // Calcolo
       for (int k = 0; k < TILE_SIZE; ++k) {
         accVal += As[localRow][k] * Bs[k][localCol];
       }
-
-      // --- SINCRONIZZAZIONE (Wait for Compute) ---
-      // Assicuriamo che tutti abbiano finito di usare As/Bs prima di
-      // sovrascriverle nella prossima iterazione
       alpaka::syncBlockThreads(acc);
     }
 
-    // 5. Scrittura Risultato
-    if (globalRow < M && globalCol < N) {
-      C[globalRow * N + globalCol] = accVal;
+    if (globalIdx[0] < M && globalIdx[1] < N) {
+      C[globalIdx[0] * N + globalIdx[1]] = accVal;
     }
   }
 };
 
-template <typename TQueue>
-void gemm_alpaka_tiled(TQueue &queue, float const *A, float const *B, float *C,
-                       GemmShape shape) {
+// 2. HELPER PER LANCIARE IL KERNEL (Definito PRIMA dell'uso)
+template <int TILE_SIZE, typename TQueue>
+void exec_tiled_template(TQueue &queue, float const *A, float const *B,
+                         float *C, GemmShape shape) {
+  Idx blocksY = (shape.m + TILE_SIZE - 1) / TILE_SIZE;
+  Idx blocksX = (shape.n + TILE_SIZE - 1) / TILE_SIZE;
 
-  // Dimensione del blocco fissa a 16x16 per matchare il TILE_SIZE
-  constexpr Idx TX = TILE_SIZE;
-  constexpr Idx TY = TILE_SIZE;
+  auto workDiv = alpaka::WorkDivMembers<Dim2, Idx>{
+      alpaka::Vec<Dim2, Idx>{blocksY, blocksX},
+      alpaka::Vec<Dim2, Idx>{(Idx)TILE_SIZE, (Idx)TILE_SIZE},
+      alpaka::Vec<Dim2, Idx>{1u, 1u}};
 
-  Idx blocksY = (Idx)((shape.m + TY - 1) / TY);
-  Idx blocksX = (Idx)((shape.n + TX - 1) / TX);
-
-  auto const gridThreadExtent = alpaka::Vec<Dim2, Idx>{blocksY, blocksX};
-  auto const blockThreadExtent = alpaka::Vec<Dim2, Idx>{TY, TX};
-  auto const elemExtent = alpaka::Vec<Dim2, Idx>{1u, 1u};
-
-  alpaka::WorkDivMembers<Dim2, Idx> workDiv(gridThreadExtent, blockThreadExtent,
-                                            elemExtent);
-  GemmTiledKernel kernel;
-
+  GemmTiledKernel<TILE_SIZE> kernel;
   alpaka::exec<Acc>(queue, workDiv, kernel, A, B, C, shape.m, shape.n, shape.k);
   alpaka::wait(queue);
 }
 
-// Istanziazione Esplicita
+// 3. CALCOLO OTTIMALE (Host)
+template <typename TAcc>
+int get_optimal_tile_width_alpaka(alpaka::PlatformCudaRt const &platform,
+                                  int devIdx) {
+  auto dev = alpaka::getDevByIdx(platform, devIdx);
+  auto props = alpaka::getAccDevProps<TAcc>(dev);
+
+  size_t shared_mem_per_block_target = props.m_sharedMemPerMultiprocessor / 2;
+  int max_elements = (int)(shared_mem_per_block_target / (2 * sizeof(float)));
+  int side_shared = (int)std::sqrt((double)max_elements);
+  int side_threads = (int)std::sqrt((double)props.m_blockThreadCountMax);
+
+  int tile_width = std::min(side_shared, side_threads);
+
+  if (tile_width >= 32)
+    return 32;
+  return 16;
+}
+
+// 4. MAIN ENTRY POINT (Rinominato in gemm_alpaka_tiled per compatibilità)
+template <typename TQueue>
+void gemm_alpaka_tiled(TQueue &queue, float const *A, float const *B, float *C,
+                       GemmShape shape) {
+
+  // Scegliamo dinamicamente la dimensione migliore
+  int optimal_tile =
+      get_optimal_tile_width_alpaka<Acc>(alpaka::PlatformCudaRt{}, 0);
+
+  // Dispatcher: sceglie quale versione compilata lanciare
+  if (optimal_tile >= 32) {
+    exec_tiled_template<32>(queue, A, B, C, shape);
+  } else {
+    exec_tiled_template<16>(queue, A, B, C, shape);
+  }
+}
+
+// 5. ISTANZIAZIONE ESPLICITA
 using QueueType = alpaka::Queue<Acc, alpaka::Blocking>;
 template void gemm_alpaka_tiled<QueueType>(QueueType &queue, float const *A,
                                            float const *B, float *C,
