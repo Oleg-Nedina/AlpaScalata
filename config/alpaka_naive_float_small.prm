@@ -1,4 +1,4 @@
-solver = naive
+solver = tiling
 precision = float
 min = 64
 max = 4096
