@@ -70,12 +70,11 @@ namespace gemm {
             P[row * n + col] = acc;
         }
     }
-    }
 
     void gemm_cuda_full_options(const float *A, const float *B, float *C, GemmShape s) {
         dim3 block(16, 16, 1);
         dim3 grid((s.n + block.x - 1) / block.x, (s.m + block.y - 1) / block.y, 1);
-        gemm_naive_kernel<<<grid, block>>>(A, B, C, s.m, s.n, s.k);
+        gemm_full_options_kernel<<<grid, block>>>(A, B, C, s.m, s.n, s.k);
         cudaCheck(cudaGetLastError(), "kernel launch");
         cudaCheck(cudaDeviceSynchronize(), "device sync");
     }
