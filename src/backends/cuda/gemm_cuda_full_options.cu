@@ -3,12 +3,6 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 
-// tile dim
-#define BM 16
-#define BN 32
-#define BK 64
-#define STRIPES (BK / BM)
-
 namespace gemm {
 
     static inline void cudaCheck(cudaError_t e, const char *msg) {
@@ -17,48 +11,43 @@ namespace gemm {
     }
 
     __global__ void gemm_full_options_kernel(const float *A, const float *B, float *C,
-                                      int m, int n, int k) {
-        int row = blockIdx.y * blockDim.y + threadIdx.y; // global thread row position
-        int col = blockIdx.x * blockDim.x + threadIdx.x; // global thread col position
+                                             int m, int n, int k, int Ns_offset, int TileWidth) {
 
-        if (row >= m || col >= n)
-            return;
+        int row = blockIdx.y * TileWidth + threadIdx.y; // global thread row position
+        int col = blockIdx.x * TileWidth + threadIdx.x; // global thread col position
 
-        __shared__ float M_s[BM][BK];
-        __shared__ float N_s[BK][BN+1];
+        extern __shared__ float Ms_Ns[]; //dynamic shared memory declaration
+
+        float *M_s = (float *)Ms_Ns; //first part
+        float *N_s = (float *)Ms_Ns + Ns_offset; //second part
 
         float acc = 0.0f;
-        int numTiles = (k+BK-1)/BK;
 
-        for (int t = 0; t < numTiles; t++) {
+        for (int t = 0; t < (k + TileWidth - 1) / TileWidth; ++t) {
 
             // LOAD PHASE
-            int aColBase = t * BK + threadIdx.x;
-            int bRowBase = t * BK + threadIdx.y;
 
-            // Load M Tile
-            #pragma unroll
-            for(int i = 0; i < (BK/BN); i++){
-                int aCol = aColBase + i * BN;
-                int sx = threadIdx.x + i * BN;
-                M_s[threadIdx.y][sx] = (row < m && aCol < k) ? M[row * k + aCol] : 0.0f;
+            // Load A into M_s
+            if(row >= m || (t * TileWidth + threadIdx.x) >= k){ //boundary check
+                M_s[threadIdx.y * TileWidth + threadIdx.x] = 0.0f;
+            }
+            else{
+                M_s[threadIdx.y * TileWidth + threadIdx.x] = A[row * k + t * TileWidth + threadIdx.x];
             }
 
-            // Load N Tile
-            #pragma unroll
-            for(int i = 0; i < STRIPES; i++){
-                int bRow = bRowBase + i * BM;
-                int sy = threadIdx.y + i * BM;
-                N_s[sy][threadIdx.x] = (bRow < k && col < n) ? N[bRow * n + col] : 0.0f;
+            // Load B into N_s
+            if ((t * TileWidth + threadIdx.y) >= k || col >= n) { //boundary check
+                Nds[threadIdx.y * TileWidth + threadIdx.x] = 0.0f;
+            } else {
+                Nds[threadIdx.y * TileWidth + threadIdx.x] = B[(t * TileWidth + threadIdx.y) * n + col];
             }
 
             // SYNC (Wait for load)
             __syncthreads();
 
-            // COMPUTE PHASE
-            #pragma unroll 64
-            for (int kk = 0; kk < BK; ++kk) {
-                acc = fmaf(M_s[threadIdx.y][kk], N_s[kk][threadIdx.x], acc);
+            // ACCUMULATION PHASE
+            for (int i = 0; i < TileWidth; ++i) {
+                acc = fmaf(M_s[threadIdx.y * TileWidth + i], N_s[i * TileWidth + threadIdx.x], acc);
             }
 
             // SYNC (Wait for compute before next load)
@@ -67,14 +56,20 @@ namespace gemm {
 
         // Write Result
         if (row < m && col < n) {
-            P[row * n + col] = acc;
+            C[row * n + col] = acc;
         }
     }
 
     void gemm_cuda_full_options(const float *A, const float *B, float *C, GemmShape s) {
-        dim3 block(16, 16, 1);
-        dim3 grid((s.n + block.x - 1) / block.x, (s.m + block.y - 1) / block.y, 1);
-        gemm_full_options_kernel<<<grid, block>>>(A, B, C, s.m, s.n, s.k);
+        // Determine optimal tile size based on hardware
+        // For many GPUs, 32x32 is a standard starting point
+        int TileWidth = 32;
+        int tile_elements = TileWidth * TileWidth;
+        size_t shared_mem_size_bytes = 2 * tile_elements * sizeof(float); //total elements in shared memory
+        int Ns_offset = tile_elements;
+        dim3 block(TileWidth, TileWidth, 1);
+        dim3 grid((s.n + TileWidth - 1) / TileWidth, (s.m + TileWidth - 1) / TileWidth, 1);
+        gemm_full_options_kernel<<<grid, block, shared_mem_size_bytes>>>(A, B, C, s.m, s.n, s.k, opt_size/2, TileWidth);
         cudaCheck(cudaGetLastError(), "kernel launch");
         cudaCheck(cudaDeviceSynchronize(), "device sync");
     }
