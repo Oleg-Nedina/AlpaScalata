@@ -23,12 +23,15 @@ if(ENABLE_ALPAKA)
   # 1. Definisci PRIMA le proprietà (consigliato, ma funziona anche dopo se il path è giusto)
   set_source_files_properties(
     backends/alpaka/gemm_alpaka_naive.cpp
+    backends/alpaka/gemm_alpaka_tiling.cpp
     PROPERTIES LANGUAGE CUDA
   )
 
   # 2. Aggiungi la libreria usando LO STESSO percorso relativo
   add_library(gemm_backend_alpaka STATIC
     backends/alpaka/gemm_alpaka_naive.cpp
+    backends/alpaka/gemm_alpaka_tiling.cpp
+
   )
 
   target_include_directories(gemm_backend_alpaka PUBLIC ${PROJ_INC_DIRS})
