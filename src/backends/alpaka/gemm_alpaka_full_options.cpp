@@ -14,6 +14,9 @@ using Dim1 = alpaka::DimInt<1>;
 using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
 using QueueType = alpaka::Queue<Acc, alpaka::Blocking>;
 
+// =============================================================================
+// 0. HELPERS PER VIEW (Safety & Compatibility)
+// =============================================================================
 template <typename TDev, typename TPtr>
 auto as_view_2d(TDev const &dev, TPtr *ptr, Idx rows, Idx cols,
                 Idx pitch_elems) {
@@ -33,27 +36,23 @@ auto as_view_1d(TDev const &dev, TPtr *ptr, Idx elems) {
   return alpaka::createView(dev, ptr, ext);
 }
 
-// TM: Righe del Tile C
-// TN: Colonne del Tile C
-// TK: Profondità di accumulo
+// =============================================================================
+// 1. KERNEL GEMM RETTANGOLARE UNIFICATO
+// =============================================================================
 template <int TM, int TN, int TK> struct GemmRectKernel {
   template <typename TAcc>
   ALPAKA_FN_ACC void operator()(TAcc const &acc, float const *A, float const *B,
                                 float *C, int M, int N, int K,
                                 bool accumulate) const {
 
-    // Indici
     auto const globalIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
     auto const localIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
 
-    int localRow = localIdx[0]; // Range 0..TM-1
-    int localCol = localIdx[1]; // Range 0..TN-1
-
-    // Linearizzazione thread ID (per caricamento collaborativo)
+    int localRow = localIdx[0];
+    int localCol = localIdx[1];
     int threadId = localRow * TN + localCol;
     int blockSize = TM * TN;
 
-    // Shared Memory (Rettangolare)
     float (&As)[TM][TK] =
         alpaka::declareSharedVar<float[TM][TK], __COUNTER__>(acc);
     float (&Bs)[TK][TN] =
@@ -65,30 +64,28 @@ template <int TM, int TN, int TK> struct GemmRectKernel {
     for (int t = 0; t < numTiles; ++t) {
       int tiledK = t * TK;
 
+      // Caricamento Collaborativo A
       for (int i = threadId; i < TM * TK; i += blockSize) {
         int r = i / TK;
         int c = i % TK;
         int globalR = globalIdx[0] - localRow + r;
         int globalC = tiledK + c;
-
-        if (globalR < M && globalC < K) {
+        if (globalR < M && globalC < K)
           As[r][c] = A[globalR * K + globalC];
-        } else {
+        else
           As[r][c] = 0.0f;
-        }
       }
 
+      // Caricamento Collaborativo B
       for (int i = threadId; i < TK * TN; i += blockSize) {
         int r = i / TN;
         int c = i % TN;
         int globalR = tiledK + r;
         int globalC = globalIdx[1] - localCol + c;
-
-        if (globalR < K && globalC < N) {
+        if (globalR < K && globalC < N)
           Bs[r][c] = B[globalR * N + globalC];
-        } else {
+        else
           Bs[r][c] = 0.0f;
-        }
       }
 
       alpaka::syncBlockThreads(acc);
@@ -109,6 +106,9 @@ template <int TM, int TN, int TK> struct GemmRectKernel {
   }
 };
 
+// =============================================================================
+// 2. DISPATCHER KERNEL
+// =============================================================================
 template <int TM, int TN, int TK, typename TQueue, typename TPtrA,
           typename TPtrB, typename TPtrC>
 void launch_rect_kernel(TQueue &queue, TPtrA const A, TPtrB const B, TPtrC C,
@@ -125,6 +125,12 @@ void launch_rect_kernel(TQueue &queue, TPtrA const A, TPtrB const B, TPtrC C,
   alpaka::exec<Acc>(queue, workDiv, kernel, A, B, C, m, n, k, accumulate);
 }
 
+// =============================================================================
+// 3. LOGICA BATCHING (Out-of-Core)
+// =============================================================================
+enum class TileConfig { Square32, Rect16x32, Square16 };
+
+// Helper Copy Utils
 template <typename TQueue, typename TDevHost, typename TDevAcc>
 void upload_tile_alpaka(TQueue &queue, TDevHost const &devHost,
                         TDevAcc const &devAcc, float *d_dst, const float *h_src,
@@ -150,13 +156,12 @@ void download_tile_alpaka(TQueue &queue, TDevHost const &devHost,
   alpaka::memcpy(queue, viewHost, viewDev);
 }
 
-enum class TileConfig { Square32, Rect16x32, Square16 };
-
 template <typename TQueue>
 void gemm_out_of_core_alpaka(TQueue &queue, float const *h_A, float const *h_B,
                              float *h_C, int M, int N, int K,
                              TileConfig config) {
 
+  // Dimensione Chunk: 4096 è un buon compromesso per saturare il bus PCIe
   const int CHUNK_SIZE = 4096;
   auto devAcc = alpaka::getDev(queue);
   auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0u);
@@ -185,7 +190,6 @@ void gemm_out_of_core_alpaka(TQueue &queue, float const *h_A, float const *h_B,
 
         bool accumulate = (l > 0);
 
-        // Dispatcher Dinamico Interno
         if (config == TileConfig::Square32)
           launch_rect_kernel<32, 32, 32>(queue, d_A, d_B, d_C, m_curr, n_curr,
                                          k_curr, accumulate);
@@ -203,39 +207,70 @@ void gemm_out_of_core_alpaka(TQueue &queue, float const *h_A, float const *h_B,
   alpaka::wait(queue);
 }
 
+// =============================================================================
+// 4. INTELLIGENZA DINAMICA (Memoria & Tile)
+// =============================================================================
+
+// Helper per ottenere la memoria libera REALE senza errori di compilazione
+std::size_t get_real_free_memory(alpaka::PlatformCudaRt const &platform,
+                                 int devIdx) {
+  auto dev = alpaka::getDevByIdx(platform, devIdx); // Handle non-const
+  std::size_t free = 0, total = 0;
+  try {
+    // Questa chiamata ora funziona perché dev non è const
+    alpaka::getMemBytes(dev, free, total);
+  } catch (...) {
+    return 0; // Fallback se qualcosa va storto
+  }
+  return free;
+}
+
+// Helper per la configurazione Tile
 template <typename TAcc>
 TileConfig get_optimal_tile_config(alpaka::PlatformCudaRt const &platform,
                                    int devIdx) {
   auto dev = alpaka::getDevByIdx(platform, devIdx);
   auto props = alpaka::getAccDevProps<TAcc>(dev);
 
-  if (props.m_blockThreadCountMax >= 1024) {
-    return TileConfig::Square32; // Tenta la massima potenza
-  } else if (props.m_blockThreadCountMax >= 512) {
+  if (props.m_blockThreadCountMax >= 1024)
+    return TileConfig::Square32;
+  else if (props.m_blockThreadCountMax >= 512)
     return TileConfig::Rect16x32;
-  }
   return TileConfig::Square16;
 }
 
+// =============================================================================
+// 5. MAIN ENTRY POINT
+// =============================================================================
 template <typename TQueue>
 void gemm_alpaka_full_options(TQueue &queue, float const *A, float const *B,
                               float *C, GemmShape s) {
 
-  // 1. Calcolo Memoria
+  // 1. Calcolo Memoria Necessaria
   size_t required = (size_t)s.m * s.k + (size_t)s.k * s.n + (size_t)s.m * s.n;
   required *= sizeof(float);
+
+  // Margine di sicurezza (driver, sistema operativo, stack) - 500MB
   const size_t SAFETY_MARGIN = 500ULL * 1024 * 1024;
-  const size_t ESTIMATED_FREE_VRAM = 4ULL * 1024 * 1024 * 1024;
 
-  // 2. Decisione Batching
-  bool use_batching = (required + SAFETY_MARGIN) >= ESTIMATED_FREE_VRAM;
+  // 2. Interrogazione Hardware Dinamica
+  size_t free_vram = get_real_free_memory(alpaka::PlatformCudaRt{}, 0);
 
-  // 3. Decisione Tiling Dinamico
+  // Fallback: se la query fallisce (ritorna 0), assumiamo 4GB conservativi
+  if (free_vram == 0)
+    free_vram = 4ULL * 1024 * 1024 * 1024;
+
+  // 3. Decisione: Batching o No?
+  // Se la memoria richiesta (+ margine) ci sta nella VRAM libera, NON usiamo
+  // batching.
+  bool use_batching = (required + SAFETY_MARGIN) >= free_vram;
+
+  // 4. Decisione Configurazione Tile
   auto config = get_optimal_tile_config<Acc>(alpaka::PlatformCudaRt{}, 0);
 
   if (!use_batching) {
-    // --- STANDARD PATH (ZERO-COPY) ---
-    // Puntatori Device passati direttamente
+    // --- STANDARD PATH (MAX PERFORMANCE) ---
+    // Zero-Copy: usiamo puntatori diretti, niente allocazioni extra.
 
     if (config == TileConfig::Square32) {
       launch_rect_kernel<32, 32, 32>(queue, A, B, C, s.m, s.n, s.k, false);
@@ -247,8 +282,8 @@ void gemm_alpaka_full_options(TQueue &queue, float const *A, float const *B,
     alpaka::wait(queue);
 
   } else {
-    // --- BATCHING PATH ---
-    // Puntatori Host attesi
+    // --- BATCHING PATH (MAX ROBUSTNESS) ---
+    // Suddivide il lavoro in chunk per non crashare
     gemm_out_of_core_alpaka(queue, A, B, C, s.m, s.n, s.k, config);
   }
 }
