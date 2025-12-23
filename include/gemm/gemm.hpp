@@ -23,6 +23,10 @@ void gemm_alpaka_naive(TQueue &queue, float const *A, float const *B, float *C,
                        GemmShape shape);
 
 template <typename TQueue>
+void gemm_alpaka_full_options(TQueue &queue, float const *A, float const *B,
+                              float *C, GemmShape shape);
+
+template <typename TQueue>
 void gemm_alpaka_tiled(TQueue &queue, float const *A, float const *B, float *C,
                        GemmShape shape);
 #endif

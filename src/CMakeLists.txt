@@ -24,6 +24,8 @@ if(ENABLE_ALPAKA)
   set_source_files_properties(
     backends/alpaka/gemm_alpaka_naive.cpp
     backends/alpaka/gemm_alpaka_tiling.cpp
+    backends/alpaka/gemm_alpaka_full_options.cpp
+
     PROPERTIES LANGUAGE CUDA
   )
 
@@ -31,6 +33,8 @@ if(ENABLE_ALPAKA)
   add_library(gemm_backend_alpaka STATIC
     backends/alpaka/gemm_alpaka_naive.cpp
     backends/alpaka/gemm_alpaka_tiling.cpp
+    backends/alpaka/gemm_alpaka_full_options.cpp
+
 
   )
 

@@ -172,6 +172,8 @@ void verify_correctness(Ctx &ctx, int N, const RunCfg &cfg) {
     gemm::gemm_alpaka_naive(ctx.queue, pA, pB, pC, shape);
   } else if (cfg.solver == "alpaka_tiling") {
     gemm::gemm_alpaka_tiled(ctx.queue, pA, pB, pC, shape);
+  } else if (cfg.solver == "alpaka_full") {
+    gemm::gemm_alpaka_full_options(ctx.queue, pA, pB, pC, shape);
   } else {
     std::cerr << "\nERROR: Unknown solver '" << cfg.solver << "'\n";
     std::exit(1);
@@ -228,14 +230,18 @@ static float bench_alpaka_once_ms(Ctx &ctx, int N, const RunCfg &cfg) {
       gemm::gemm_alpaka_naive(ctx.queue, Ad, Bd, Cd, shape);
     } else if (cfg.solver == "alpaka_tiling") {
       gemm::gemm_alpaka_tiled(ctx.queue, Ad, Bd, Cd, shape);
+    } else if (cfg.solver == "alpaka_full") {
+      gemm::gemm_alpaka_full_options(ctx.queue, Ad, Bd, Cd, shape);
     } else {
-     std::cerr << "ERROR: Unknown solver '" << cfg.solver << "'\n";
+      std::cerr << "ERROR: Unknown solver '" << cfg.solver << "'\n";
       std::exit(1);
     }
   };
 
-  //  Warmup 
-  for (int i = 0; i < cfg.warmup; ++i) { run_solver(); }
+  //  Warmup
+  for (int i = 0; i < cfg.warmup; ++i) {
+    run_solver();
+  }
   alpaka::wait(ctx.queue);
 
   // Timing
