@@ -10,7 +10,7 @@ namespace gemm {
             throw std::runtime_error(std::string(msg) + ": " + cudaGetErrorString(e));
     }
 
-    __global__ void gemm_full_options_kernel(const float *A, const float *B, float *C,
+    __global__ void gemm_full_options_kernel(const float* __restrict__ A, const float* __restrict__ B, float* __restrict__ C,
                                              int m, int n, int k, int Ns_offset, int TileWidth, bool accumulation_flag) {
 
         int row = blockIdx.y * TileWidth + threadIdx.y; // global thread row position
@@ -32,14 +32,14 @@ namespace gemm {
                 M_s[threadIdx.y * TileWidth + threadIdx.x] = 0.0f;
             }
             else{
-                M_s[threadIdx.y * TileWidth + threadIdx.x] = A[row * k + t * TileWidth + threadIdx.x];
+                M_s[threadIdx.y * TileWidth + threadIdx.x] = A[(size_t)row * k + t * TileWidth + threadIdx.x];
             }
 
             // Load B into N_s
             if ((t * TileWidth + threadIdx.y) >= k || col >= n) { //boundary check
                 N_s[threadIdx.y * TileWidth + threadIdx.x] = 0.0f;
             } else {
-                N_s[threadIdx.y * TileWidth + threadIdx.x] = B[(t * TileWidth + threadIdx.y) * n + col];
+                N_s[threadIdx.y * TileWidth + threadIdx.x] = B[(size_t)(t * TileWidth + threadIdx.y) * n + col];
             }
 
             // SYNC (Wait for load)
@@ -57,10 +57,10 @@ namespace gemm {
         // Write Result
         if (row < m && col < n) {
             if(accumulation_flag) {
-                C[row * n + col] = acc;
+                C[(size_t)row * n + col] += acc;
             }
             else {
-                C[row * n + col] = acc;
+                C[(size_t)row * n + col] = acc;
             }
         }
     }
@@ -104,17 +104,124 @@ namespace gemm {
         dim3 grid((n + TileWidth - 1) / TileWidth, (m + TileWidth - 1) / TileWidth, 1);
 
         gemm_full_options_kernel<<<grid, block, shared_mem_size_bytes>>>(
-                A, B, C, m, n, k, Ns_offset, TileWidth, accumulate
+                A, B, C, m, n, k, Ns_offset, TileWidth, accumulation_flag
         );
-
         cudaCheck(cudaGetLastError(), "kernel launch");
+    }
+
+    void upload_tile(float* d_dst, const float* h_src,
+                     int big_M, int big_N, // Dimensions of the full host matrix
+                     int r_offset, int c_offset, // Top-left corner of the tile
+                     int tile_rows, int tile_cols) {
+
+        // Device is tightly packed
+        size_t dpitch = tile_cols * sizeof(float);
+        // Host is strided by full width
+        size_t spitch = big_N * sizeof(float);
+
+        const float* src_ptr = h_src + ((size_t)r_offset * big_N) + c_offset;
+
+        cudaCheck(cudaMemcpy2D(d_dst, dpitch, src_ptr, spitch,
+                               tile_cols * sizeof(float), tile_rows,
+                               cudaMemcpyHostToDevice), "Tile Upload");
+    }
+
+    void download_tile(float* h_dst, const float* d_src,
+                       int big_M, int big_N,
+                       int r_offset, int c_offset,
+                       int tile_rows, int tile_cols) {
+
+        size_t dpitch = big_N * sizeof(float);      // Host is strided by full width
+        size_t spitch = tile_cols * sizeof(float);  // Device is tightly packed
+
+        float* dst_ptr = h_dst + ((size_t)r_offset * big_N) + c_offset;
+
+        cudaCheck(cudaMemcpy2D(dst_ptr, dpitch, d_src, spitch,
+                               tile_cols * sizeof(float), tile_rows,
+                               cudaMemcpyDeviceToHost), "Tile Download");
+    }
+
+    void gemm_out_of_core(const float* h_A, const float* h_B, float* h_C,
+                          int M, int N, int K, int TileWidth) {
+
+        // Define Chunk Size (e.g., 4096). This uses ~192MB VRAM for 3 buffers.
+        const int CHUNK_SIZE = 4096;
+
+        // Allocate buffers on GPU
+        float *d_A, *d_B, *d_C;
+        size_t buf_size = (size_t)CHUNK_SIZE * CHUNK_SIZE * sizeof(float);
+        cudaCheck(cudaMalloc(&d_A, buf_size), "Alloc d_A");
+        cudaCheck(cudaMalloc(&d_B, buf_size), "Alloc d_B");
+        cudaCheck(cudaMalloc(&d_C, buf_size), "Alloc d_C");
+
+        // Loop over result blocks (M x N)
+        for (int i = 0; i < M; i += CHUNK_SIZE) {
+            for (int j = 0; j < N; j += CHUNK_SIZE) {
+
+                int m_curr = std::min(CHUNK_SIZE, M - i);
+                int n_curr = std::min(CHUNK_SIZE, N - j);
+
+                // Loop over accumulation dimension (K)
+                for (int l = 0; l < K; l += CHUNK_SIZE) {
+                    int k_curr = std::min(CHUNK_SIZE, K - l);
+
+                    // 1. Upload Chunks
+                    upload_tile(d_A, h_A, M, K, i, l, m_curr, k_curr);
+                    upload_tile(d_B, h_B, K, N, l, j, k_curr, n_curr);
+
+                    // 2. Compute
+                    // OPTIMIZATION: If l==0 (first chunk), Overwrite.
+                    //               If l>0 (next chunks), Accumulate.
+                    bool accumulation_flag = (l > 0);
+
+                    launch_gemm_kernel(d_A, d_B, d_C,
+                                       m_curr, n_curr, k_curr,
+                                       TileWidth, accumulation_flag);
+                }
+
+                // 3. Download Result
+                download_tile(h_C, d_C, M, N, i, j, m_curr, n_curr);
+            }
+        }
+
+        cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
     }
 
     void gemm_cuda_full_options(const float *A, const float *B, float *C, GemmShape s) {
         int deviceId;
         cudaGetDevice(&deviceId);
+        //get optimal TileWidth
         int TileWidth = get_optimal_tile_width(deviceId);
-        launch_gemm_kernel(A, B, C, s.m, s.n, s.k, TileWidth, false);
+        //check memory requirements
+        size_t free_byte, total_byte;
+        cudaMemGetInfo(&free_byte, &total_byte);
+
+        size_t required = (size_t)s.m * s.k + (size_t)s.k * s.n + (size_t)s.m * s.n;
+        required *= sizeof(float);
+
+        // Safety: Leave arbitrary 500MB for system/overhead
+        size_t margin = 500 * 1024 * 1024;
+        if(required + margin < free_byte) {
+            //no banching
+            float *d_A, *d_B, *d_C;
+            cudaCheck(cudaMalloc(&d_A, s.m * s.k * sizeof(float)), "Malloc A");
+            cudaCheck(cudaMalloc(&d_B, s.k * s.n * sizeof(float)), "Malloc B");
+            cudaCheck(cudaMalloc(&d_C, s.m * s.n * sizeof(float)), "Malloc C");
+
+            cudaCheck(cudaMemcpy(d_A, A, s.m * s.k * sizeof(float), cudaMemcpyHostToDevice), "Copy A");
+            cudaCheck(cudaMemcpy(d_B, B, s.k * s.n * sizeof(float), cudaMemcpyHostToDevice), "Copy B");
+
+            launch_gemm_kernel(d_A, d_B, d_C, s.m, s.n, s.k, TileWidth, false);
+
+            cudaCheck(cudaMemcpy(C, d_C, s.m * s.n * sizeof(float), cudaMemcpyDeviceToHost), "Copy C");
+
+            cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
+        }
+        else {
+            //batching
+            gemm_out_of_core(A, B, C, s.m, s.n, s.k, TileWidth);
+        }
+
         cudaCheck(cudaDeviceSynchronize(), "device sync");
     }
 
