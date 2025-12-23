@@ -1,7 +1,7 @@
 solver = tiling
 precision = float
 min = 64
-max = 4096
+max = 8172
 step = 64
 reps = 5
 warmup = 2
