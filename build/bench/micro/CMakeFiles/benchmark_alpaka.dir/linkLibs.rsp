@@ -1,0 +1,1 @@
+ ../../src/libgemm_backend_alpaka.a "/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap/lib64/libcudart.so" -lcudadevrt -lcudart_static -lrt -lpthread -ldl 

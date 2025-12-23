@@ -1,0 +1,2 @@
+/bin/ar qc libgemm_backend_cuda.a CMakeFiles/gemm_backend_cuda.dir/backends/cuda/gemm_cuda.cu.o CMakeFiles/gemm_backend_cuda.dir/backends/cuda/gemm_cuda_naive.cu.o
+/bin/ranlib libgemm_backend_cuda.a

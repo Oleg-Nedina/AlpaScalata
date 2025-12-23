@@ -1,0 +1,1 @@
+-I/home/u10905938/AlpaScalata/src -I/home/u10905938/AlpaScalata -I/home/u10905938/AlpaScalata/include -I/home/u10905938/AlpaScalata/src/include -isystem "/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap/targets/x86_64-linux/include"
