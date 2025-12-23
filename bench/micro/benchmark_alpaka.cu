@@ -92,10 +92,6 @@ static inline void fill_random(std::vector<float> &v, unsigned seed) {
     x = dist(rng);
 }
 
-// -----------------------------------------------------------------------------
-// 3. Verifica CPU vs GPU (Logica presa dal tuo benchmark CUDA)
-// -----------------------------------------------------------------------------
-
 // Implementazione GEMM semplice su CPU per riferimento
 void cpu_gemm_ref(const float *A, const float *B, float *C, int M, int N,
                   int K) {
@@ -113,7 +109,6 @@ void cpu_gemm_ref(const float *A, const float *B, float *C, int M, int N,
   }
 }
 
-// Funzione di confronto con tolleranza
 static void check_close(const std::vector<float> &got,
                         const std::vector<float> &ref, float atol = 1e-3f,
                         float rtol = 1e-3f) {
@@ -169,10 +164,18 @@ void verify_correctness(Ctx &ctx, int N, const RunCfg &cfg) {
 
   // Esegui Kernel
   gemm::GemmShape shape{M, N, K};
-  gemm::gemm_alpaka_naive(ctx.queue, alpaka::getPtrNative(bufA_d),
-                          alpaka::getPtrNative(bufB_d),
-                          alpaka::getPtrNative(bufC_d), shape);
+  auto *pA = alpaka::getPtrNative(bufA_d);
+  auto *pB = alpaka::getPtrNative(bufB_d);
+  auto *pC = alpaka::getPtrNative(bufC_d);
 
+  if (cfg.solver == "alpaka_naive") {
+    gemm::gemm_alpaka_naive(ctx.queue, pA, pB, pC, shape);
+  } else if (cfg.solver == "alpaka_tiled") {
+    gemm::gemm_alpaka_tiled(ctx.queue, pA, pB, pC, shape);
+  } else {
+    std::cerr << "\nERROR: Unknown solver '" << cfg.solver << "'\n";
+    std::exit(1);
+  }
   // D2H
   alpaka::memcpy(ctx.queue, bufC_h, bufC_d, extent);
   alpaka::wait(ctx.queue);
@@ -219,16 +222,28 @@ static float bench_alpaka_once_ms(Ctx &ctx, int N, const RunCfg &cfg) {
   auto *Cd = alpaka::getPtrNative(bufC_d);
   gemm::GemmShape shape{M, N, K};
 
-  // Warmup
-  for (int i = 0; i < cfg.warmup; ++i) {
-    gemm::gemm_alpaka_naive(ctx.queue, Ad, Bd, Cd, shape);
-  }
+  // Helper lambda per lanciare il solver corretto
+  auto run_solver = [&]() {
+    if (cfg.solver == "alpaka_naive") {
+      gemm::gemm_alpaka_naive(ctx.queue, Ad, Bd, Cd, shape);
+    } else if (cfg.solver == "alpaka_tiled") {
+      gemm::gemm_alpaka_tiled(ctx.queue, Ad, Bd, Cd, shape);
+    } else {
+      std::cerr << "ERROR:
+          Unknown solver '" << cfg.solver
+                << "'\n";
+      std::exit(1);
+    }
+  };
+
+  //
+  Warmup for (int i = 0; i < cfg.warmup; ++i) { run_solver(); }
   alpaka::wait(ctx.queue);
 
   // Timing
   auto t0 = std::chrono::high_resolution_clock::now();
   for (int i = 0; i < cfg.reps; ++i) {
-    gemm::gemm_alpaka_naive(ctx.queue, Ad, Bd, Cd, shape);
+    run_solver();
   }
   alpaka::wait(ctx.queue); // Assicura che la GPU abbia finito
   auto t1 = std::chrono::high_resolution_clock::now();
