@@ -6,5 +6,5 @@ CUDA_DEFINES =
 
 CUDA_INCLUDES = --options-file CMakeFiles/benchmark_cuda.dir/includes_CUDA.rsp
 
-CUDA_FLAGS = -D_GLIBCXX_USE_CXX11_ABI=0 -allow-unsupported-compiler -DALPAKA_ACC_GPU_CUDA_ENABLED -O3 -DNDEBUG -std=c++20 "--generate-code=arch=compute_75,code=[compute_75,sm_75]" -Xcompiler=-fPIE
+CUDA_FLAGS = -O3 -DNDEBUG -std=c++20 "--generate-code=arch=compute_75,code=[compute_75,sm_75]" -Xcompiler=-fPIE
 

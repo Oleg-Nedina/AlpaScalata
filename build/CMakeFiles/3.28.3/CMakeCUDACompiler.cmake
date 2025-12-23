@@ -1,6 +1,6 @@
 set(CMAKE_CUDA_COMPILER "/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap/bin/nvcc")
-set(CMAKE_CUDA_HOST_COMPILER "/usr/bin/g++")
-set(CMAKE_CUDA_HOST_LINK_LAUNCHER "/usr/bin/g++")
+set(CMAKE_CUDA_HOST_COMPILER "")
+set(CMAKE_CUDA_HOST_LINK_LAUNCHER "/bin/g++")
 set(CMAKE_CUDA_COMPILER_ID "NVIDIA")
 set(CMAKE_CUDA_COMPILER_VERSION "13.0.88")
 set(CMAKE_CUDA_DEVICE_LINKER "/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap/bin/nvlink")

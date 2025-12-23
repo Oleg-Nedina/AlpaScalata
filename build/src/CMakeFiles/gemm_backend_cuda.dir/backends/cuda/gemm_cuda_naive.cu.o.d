@@ -272,19 +272,6 @@ src/CMakeFiles/gemm_backend_cuda.dir/backends/cuda/gemm_cuda_naive.cu.o : /home/
     /usr/include/c++/13/bits/basic_string.h \
     /usr/include/c++/13/string_view \
     /usr/include/c++/13/bits/string_view.tcc \
-    /usr/include/c++/13/bits/cow_string.h \
-    /usr/include/c++/13/ext/atomicity.h \
-    /usr/include/x86_64-linux-gnu/c++/13/bits/gthr.h \
-    /usr/include/x86_64-linux-gnu/c++/13/bits/gthr-default.h \
-    /usr/include/pthread.h \
-    /usr/include/sched.h \
-    /usr/include/x86_64-linux-gnu/bits/sched.h \
-    /usr/include/x86_64-linux-gnu/bits/types/struct_sched_param.h \
-    /usr/include/x86_64-linux-gnu/bits/cpu-set.h \
-    /usr/include/x86_64-linux-gnu/bits/setjmp.h \
-    /usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h \
-    /usr/include/x86_64-linux-gnu/c++/13/bits/atomic_word.h \
-    /usr/include/x86_64-linux-gnu/sys/single_threaded.h \
     /usr/include/c++/13/ext/string_conversions.h \
     /usr/include/c++/13/cstdio \
     /usr/include/c++/13/cerrno \

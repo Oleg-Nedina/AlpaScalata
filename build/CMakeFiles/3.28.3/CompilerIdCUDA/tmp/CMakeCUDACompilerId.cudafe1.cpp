@@ -4701,6 +4701,18 @@ terminate();
 } 
 #pragma GCC visibility pop
 }
+# 339 "/usr/include/x86_64-linux-gnu/c++/13/bits/c++config.h" 3
+namespace std { 
+# 341
+inline namespace __cxx11 __attribute((__abi_tag__("cxx11"))) { }
+# 342
+}
+# 343
+namespace __gnu_cxx { 
+# 345
+inline namespace __cxx11 __attribute((__abi_tag__("cxx11"))) { }
+# 346
+}
 # 532 "/usr/include/x86_64-linux-gnu/c++/13/bits/c++config.h" 3
 namespace std { 
 # 534
@@ -16970,7 +16982,11 @@ __distance(_RandomAccessIterator __first, _RandomAccessIterator __last, random_a
 return __last - __first; 
 # 107
 } 
-# 126 "/usr/include/c++/13/bits/stl_iterator_base_funcs.h" 3
+# 111
+template< class _Tp> ptrdiff_t __distance(_List_iterator< _Tp> , _List_iterator< _Tp> , input_iterator_tag); 
+# 117
+template< class _Tp> ptrdiff_t __distance(_List_const_iterator< _Tp> , _List_const_iterator< _Tp> , input_iterator_tag); 
+# 126
 template < typename _OutputIterator >
     void
     __distance ( _OutputIterator, _OutputIterator, output_iterator_tag ) = delete;

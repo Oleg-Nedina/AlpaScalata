@@ -304,7 +304,6 @@ src/CMakeFiles/gemm_backend_alpaka.dir/backends/alpaka/gemm_alpaka_full_options.
     /usr/include/c++/13/bits/basic_string.h \
     /usr/include/c++/13/string_view \
     /usr/include/c++/13/bits/string_view.tcc \
-    /usr/include/c++/13/bits/cow_string.h \
     /usr/include/c++/13/ext/string_conversions.h \
     /usr/include/c++/13/cstdio \
     /usr/include/c++/13/cerrno \

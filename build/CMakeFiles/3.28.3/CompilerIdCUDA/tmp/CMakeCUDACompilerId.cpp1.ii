@@ -4260,6 +4260,15 @@ namespace std
   }
 #pragma GCC visibility pop
 }
+# 339 "/usr/include/x86_64-linux-gnu/c++/13/bits/c++config.h" 3
+namespace std
+{
+  inline namespace __cxx11 __attribute__((__abi_tag__ ("cxx11"))) { }
+}
+namespace __gnu_cxx
+{
+  inline namespace __cxx11 __attribute__((__abi_tag__ ("cxx11"))) { }
+}
 # 532 "/usr/include/x86_64-linux-gnu/c++/13/bits/c++config.h" 3
 namespace std
 {
@@ -20752,7 +20761,24 @@ namespace std __attribute__ ((__visibility__ ("default")))
 
       return __last - __first;
     }
-# 126 "/usr/include/c++/13/bits/stl_iterator_base_funcs.h" 3
+
+
+
+  template<typename _Tp>
+    ptrdiff_t
+    __distance(std::_List_iterator<_Tp>,
+        std::_List_iterator<_Tp>,
+        input_iterator_tag);
+
+  template<typename _Tp>
+    ptrdiff_t
+    __distance(std::_List_const_iterator<_Tp>,
+        std::_List_const_iterator<_Tp>,
+        input_iterator_tag);
+
+
+
+
   template<typename _OutputIterator>
     void
     __distance(_OutputIterator, _OutputIterator, output_iterator_tag) = delete;
