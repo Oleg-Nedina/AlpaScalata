@@ -1,6 +1,62 @@
+
 import sys, os
 import pandas as pd
 import matplotlib.pyplot as plt
+
+REQUIRED_COLS = ["Solver", "Precision", "Size", "Time_ms", "GFLOPs"]
+
+def read_one_csv(path: str) -> pd.DataFrame | None:
+    try:
+        try:
+            d = pd.read_csv(path)
+        except pd.errors.ParserError:
+            print(f"Warning: {path} seems malformed. Trying to skip bad lines...")
+            d = pd.read_csv(path, on_bad_lines="skip")
+
+        # pulizia nomi colonne
+        d.columns = [c.strip() for c in d.columns]
+
+        if "Solver" not in d.columns:
+            print(f"⚠️  Skipping {path}: header mancante o file sporco.")
+            return None
+
+        # tieni solo colonne che ti servono (se esistono)
+        missing = [c for c in REQUIRED_COLS if c not in d.columns]
+        if missing:
+            print(f"⚠️  Skipping {path}: colonne mancanti {missing}")
+            return None
+
+        d = d[REQUIRED_COLS].copy()
+
+        # normalizza valori stringa (questo è il fix per tiling_complete/full che “spariscono”)
+        d["Solver"] = d["Solver"].astype(str).str.strip()
+        d["Precision"] = d["Precision"].astype(str).str.strip()
+
+        # se vuoi rendere tutto consistente:
+        d["Solver"] = d["Solver"].str.lower()
+        d["Precision"] = d["Precision"].str.lower()
+
+        # forza numerico
+        d["Size"] = pd.to_numeric(d["Size"], errors="coerce")
+        d["Time_ms"] = pd.to_numeric(d["Time_ms"], errors="coerce")
+        d["GFLOPs"] = pd.to_numeric(d["GFLOPs"], errors="coerce")
+
+        # droppa righe invalide
+        before = len(d)
+        d = d.dropna(subset=["Size", "Time_ms", "GFLOPs"])
+        d = d[d["Size"] > 0]
+        if len(d) == 0:
+            print(f"⚠️  Skipping {path}: nessuna riga valida dopo pulizia.")
+            return None
+        if len(d) < before:
+            print(f"ℹ️  {path}: droppate {before - len(d)} righe invalide.")
+
+        return d
+
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return None
+
 
 def main():
     if len(sys.argv) < 2:
@@ -8,26 +64,10 @@ def main():
         sys.exit(1)
 
     dfs = []
-    # 1. Caricamento e Pulizia Dati
     for path in sys.argv[1:]:
-        try:
-            # Tenta di leggere il CSV. Se fallisce per righe sporche, prova a saltarle
-            try:
-                d = pd.read_csv(path)
-            except pd.errors.ParserError:
-                print(f"Warning: {path} seems malformed. Trying to skip bad lines...")
-                d = pd.read_csv(path, on_bad_lines='skip')
-
-            # Controllo se la prima riga è l'header corretto
-            if "Solver" not in d.columns:
-                print(f"⚠️  Skipping {path}: Header mancante o file sporco. (Controlla la riga 'Accelerator...')")
-                continue
-                
-            # Rimuove spazi dai nomi delle colonne
-            d.columns = [c.strip() for c in d.columns]
+        d = read_one_csv(path)
+        if d is not None:
             dfs.append(d)
-        except Exception as e:
-            print(f"Error reading {path}: {e}")
 
     if not dfs:
         print("❌ Nessun dato valido trovato. Controlla i tuoi file CSV.")
@@ -37,84 +77,113 @@ def main():
     df = df.sort_values("Size")
 
     base_dir = "plots"
-    
+
     # ---------------------------------------------------------
-    # 1. GRAFICI INDIVIDUALI (Una cartella per ogni Solver)
+    # 1) GRAFICI INDIVIDUALI: 3 grafici per (Solver, Precision)
     # ---------------------------------------------------------
     print(f"Generazione grafici individuali in '{base_dir}/Individual/...'")
-    
-    for (solver, prec), g in df.groupby(["Solver", "Precision"]):
-        # Crea cartella es: plots/Individual/alpaka_naive/float/
+
+    for (solver, prec), g in df.groupby(["Solver", "Precision"], dropna=False):
+        g = g.sort_values("Size")
+
         out_dir = os.path.join(base_dir, "Individual", solver, prec)
         os.makedirs(out_dir, exist_ok=True)
-        
-        # --- Grafico Combinato (Dual Axis) ---
+
+        # --- Dual Axis ---
         fig, ax1 = plt.subplots(figsize=(10, 6))
-        
-        color = 'tab:blue'
-        ax1.set_xlabel('Matrix Size (N)')
-        ax1.set_ylabel('Time (ms)', color=color)
-        ax1.plot(g["Size"], g["Time_ms"], color=color, marker='x', label='Time')
-        ax1.tick_params(axis='y', labelcolor=color)
+        ax1.set_xlabel("Matrix Size (N)")
+        ax1.set_ylabel("Time (ms)")
+        ax1.plot(g["Size"], g["Time_ms"], marker="x", label="Time")
         ax1.grid(True)
 
-        ax2 = ax1.twinx()  
-        color = 'tab:red'
-        ax2.set_ylabel('GFLOPs', color=color)  
-        ax2.plot(g["Size"], g["GFLOPs"], color=color, marker='o', label='GFLOPs')
-        ax2.tick_params(axis='y', labelcolor=color)
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("GFLOPs")
+
+        ax2.plot(
+                    g["Size"],
+                    g["GFLOPs"],
+                    marker="o",
+                    color="red",
+                    label="GFLOPs"
+        )
+        ax2.tick_params(axis="y", labelcolor="red")
 
         plt.title(f"Performance: {solver} ({prec})")
         fig.tight_layout()
         plt.savefig(os.path.join(out_dir, "dual_axis.pdf"))
+        plt.close(fig)
+
+        # --- Time solo ---
+        plt.figure(figsize=(10, 6))
+        plt.plot(g["Size"], g["Time_ms"], marker="x")
+        plt.title(f"{solver} Time ({prec})")
+        plt.xlabel("N")
+        plt.ylabel("Time (ms)")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, "time.pdf"))
         plt.close()
-        
-        # --- Grafici Singoli ---
-        # GFLOPs
-        plt.figure()
-        plt.plot(g["Size"], g["GFLOPs"], marker='o')
-        plt.title(f"{solver} GFLOPs")
+
+        # --- GFLOPs solo ---
+        plt.figure(figsize=(10, 6))
+        plt.plot(g["Size"], g["GFLOPs"], marker="o")
+        plt.title(f"{solver} GFLOPs ({prec})")
         plt.xlabel("N")
         plt.ylabel("GFLOPs")
         plt.grid(True)
+        plt.tight_layout()
         plt.savefig(os.path.join(out_dir, "gflops.pdf"))
         plt.close()
 
+        print(f"  ✅ {solver}/{prec}: dual_axis.pdf, time.pdf, gflops.pdf")
+
     # ---------------------------------------------------------
-    # 2. GRAFICI DI CONFRONTO (Tutti insieme)
+    # 2) GRAFICI COMPARATIVI
     # ---------------------------------------------------------
     print(f"Generazione grafici comparativi in '{base_dir}/Comparison/...'")
     comp_dir = os.path.join(base_dir, "Comparison")
     os.makedirs(comp_dir, exist_ok=True)
 
     for prec, g_prec in df.groupby("Precision"):
+        g_prec = g_prec.sort_values("Size")
+
         # Confronto GFLOPs
         plt.figure(figsize=(10, 6))
         for solver, g_sol in g_prec.groupby("Solver"):
-            plt.plot(g_sol["Size"], g_sol["GFLOPs"], marker='o', label=solver)
-        
+            g_sol = g_sol.sort_values("Size")
+            plt.plot(g_sol["Size"], g_sol["GFLOPs"], marker="o", label=solver)
+
         plt.title(f"Comparison: GFLOPs ({prec})")
         plt.xlabel("Matrix Size (N)")
         plt.ylabel("GFLOPs")
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         plt.savefig(os.path.join(comp_dir, f"compare_gflops_{prec}.pdf"))
         plt.close()
 
         # Confronto Time
         plt.figure(figsize=(10, 6))
         for solver, g_sol in g_prec.groupby("Solver"):
-            plt.plot(g_sol["Size"], g_sol["Time_ms"], marker='x', label=solver)
-        
+            g_sol = g_sol.sort_values("Size")
+            plt.plot(g_sol["Size"], g_sol["Time_ms"], marker="x", label=solver)
+
         plt.title(f"Comparison: Time ({prec})")
         plt.xlabel("Matrix Size (N)")
         plt.ylabel("Time (ms)")
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         plt.savefig(os.path.join(comp_dir, f"compare_time_{prec}.pdf"))
         plt.close()
 
-    print("✅ Fatto!")
+        print(f"  ✅ Comparison/{prec}: compare_gflops_{prec}.pdf, compare_time_{prec}.pdf")
+
+    # debug utile: vedere esattamente che gruppi hai
+    print("\n--- DEBUG gruppi trovati ---")
+    print(df.groupby(["Solver", "Precision"]).size().sort_values(ascending=False).to_string())
+
+    print("\n✅ Fatto!")
 
 if __name__ == "__main__":
     main()
