@@ -226,18 +226,18 @@ static int tb_naive_float(const RunCfg &cfg,
 
 static float bench_full_options_once_ms(int N, const RunCfg &cfg) {
     // GEMM NxN: A[N,N], B[N,N], C[N,N]
-    const size_t bytesA = (size_t)N * N * sizeof(float);
-    const size_t bytesB = (size_t)N * N * sizeof(float);
-    const size_t bytesC = (size_t)N * N * sizeof(float);
+    const size_t bytesA = (size_t) N * N * sizeof(float);
+    const size_t bytesB = (size_t) N * N * sizeof(float);
+    const size_t bytesC = (size_t) N * N * sizeof(float);
 
     // Host init
-    std::vector<float> A((size_t)N * N), B((size_t)N * N);
+    std::vector<float> A((size_t) N * N), B((size_t) N * N);
 
     std::mt19937 rng(cfg.seed);
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    for (auto &x : A)
+    for (auto &x: A)
         x = dist(rng);
-    for (auto &x : B)
+    for (auto &x: B)
         x = dist(rng);
 
     // Device alloc
@@ -280,7 +280,7 @@ static float bench_full_options_once_ms(int N, const RunCfg &cfg) {
     cudaFree(Cd);
 
     return total_ms / cfg.reps;
-
+}
 
 static int tb_full_options_float(const RunCfg &cfg,
                           const std::string& solver,
@@ -381,9 +381,10 @@ int main(int argc, char **argv) {
   if (solver == "naive" && prec == "float") {
     return tb_naive_float(cfg, solver, prec);
   }
-  else if(solver == "full_options" && prec == "float"){
+  else if(solver == "full_options" && prec == "float") {
       return tb_full_options_float(cfg, solver, prec);
   }
+}
 
   std::fprintf(stderr,
                "ERROR: unsupported solver/precision from config: %s %s\n"

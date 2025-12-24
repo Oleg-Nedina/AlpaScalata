@@ -12,6 +12,7 @@ if(ENABLE_CUDA)
     backends/cuda/gemm_cuda.cu
     backends/cuda/gemm_cuda_naive.cu
     backends/cuda/gemm_cuda_full_options.cu
+    backends/cuda/gemm_cuda_mpi.cu
   )
   target_include_directories(gemm_backend_cuda PUBLIC ${PROJ_INC_DIRS})
   target_link_libraries(gemm_backend_cuda PUBLIC CUDA::cudart)
