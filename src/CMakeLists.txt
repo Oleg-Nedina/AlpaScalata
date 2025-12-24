@@ -1,10 +1,10 @@
 # src/CMakeLists.txt
 
 set(PROJ_INC_DIRS
-  ${PROJECT_SOURCE_DIR}          # se hai gemm/ direttamente in root
-  ${PROJECT_SOURCE_DIR}/src      # se hai src/gemm/...
-  ${PROJECT_SOURCE_DIR}/include  # se hai include/gemm/...
-  ${PROJECT_SOURCE_DIR}/src/include # se hai src/include/gemm/...
+  ${PROJECT_SOURCE_DIR}
+  ${PROJECT_SOURCE_DIR}/src
+  ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/src/include
 )
 
 if(ENABLE_CUDA)
@@ -18,35 +18,49 @@ if(ENABLE_CUDA)
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --extended-lambda>
   )
 endif()
-
 if(ENABLE_ALPAKA)
-  # 1. Definisci PRIMA le proprietà (consigliato, ma funziona anche dopo se il path è giusto)
   set_source_files_properties(
     backends/alpaka/gemm_alpaka_naive.cpp
     backends/alpaka/gemm_alpaka_tiling.cpp
     backends/alpaka/gemm_alpaka_full_options.cpp
-
     PROPERTIES LANGUAGE CUDA
   )
 
-  # 2. Aggiungi la libreria usando LO STESSO percorso relativo
   add_library(gemm_backend_alpaka STATIC
     backends/alpaka/gemm_alpaka_naive.cpp
     backends/alpaka/gemm_alpaka_tiling.cpp
     backends/alpaka/gemm_alpaka_full_options.cpp
-
-
   )
 
   target_include_directories(gemm_backend_alpaka PUBLIC ${PROJ_INC_DIRS})
-
-  # Nota: assicurati che CUDA::cudart sia disponibile.
-  # Se usi Alpaka con backend CUDA, di solito basta linkare Alpaka se è configurato bene,
-  # ma lasciare CUDA::cudart male non fa.
   target_link_libraries(gemm_backend_alpaka PUBLIC alpaka CUDA::cudart)
 
   target_compile_options(gemm_backend_alpaka PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --extended-lambda>
   )
-endif()
 
+  # --- CONFIGURAZIONE MPI ---
+  find_package(MPI REQUIRED)
+
+  # 1. IMPORTANTE: Diciamo a CMake che questo file contiene codice CUDA (Alpaka)
+  #    altrimenti usa g++ e fallisce sugli header __device__
+  set_source_files_properties(
+               backends/alpaka/gemm_mpi.cpp
+                   PROPERTIES LANGUAGE CUDA
+                     )
+
+  # 2. Definiamo l'eseguibile
+  add_executable(benchmark_mpi backends/alpaka/gemm_mpi.cpp)
+
+  # 3. Linkiamo le librerie
+  target_link_libraries(benchmark_mpi
+                                 PRIVATE
+                                       MPI::MPI_CXX
+                                             gemm_backend_alpaka
+                                                   alpaka
+                                                         CUDA::cudart
+                                                           )
+
+  target_include_directories(benchmark_mpi PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+endif()
