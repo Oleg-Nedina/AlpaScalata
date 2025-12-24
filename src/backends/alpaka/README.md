@@ -1,97 +1,137 @@
-# Alpaka GEMM: Architettura "Full Options" Ibrida
+# AlpaScalata: High-Performance Distributed GEMM
 
-Questo documento descrive l'implementazione finale del kernel GEMM (General Matrix Multiply) sviluppato utilizzando la libreria di astrazione **Alpaka**. L'obiettivo del design è stato creare un solutore **robusto, portabile e performante**, capace di adattarsi dinamicamente sia a matrici di piccole dimensioni (massimizzando il throughput) che a matrici "Big Data" che superano la capacità della VRAM (evitando crash).
-
-## 1. Funzionalità Implementate
-
-Il codice finale (`gemm_alpaka_full_options.cpp`) integra tre meccanismi principali che lavorano in sinergia:
-
-### A. Gestione Ibrida della Memoria (In-Core vs Out-of-Core)
-
-Il sistema decide a runtime quale strategia di memoria utilizzare basandosi sulle risorse disponibili hardware e sulla dimensione del problema.
-
-* **Standard Path (In-Core):** Se le matrici entrano nella VRAM disponibile, il codice adotta un approccio **Zero-Copy**. I puntatori device vengono passati direttamente al kernel senza allocazioni intermedie o copie ridondanti.
-* *Vantaggio:* Massimizza la banda passante della memoria (fino a ~1 TB/s su L4).
-
-
-* **Batching Path (Out-of-Core):** Se la memoria richiesta supera quella disponibile (stimata dinamicamente), il codice attiva il **Tiling a livello Host**. Le matrici vengono suddivise in "Chunk" (es. ), trasferite sulla GPU pezzo per pezzo, elaborate e accumulate.
-* *Vantaggio:* Permette di elaborare matrici di dimensione arbitraria (limitate solo dalla RAM di sistema) senza causare errori *Out Of Memory*.
-
-
-
-### B. Tiling Rettangolare Parametrico
-
-Invece di limitarsi a blocchi quadrati fissi (es. ), il kernel è stato generalizzato tramite template C++ per supportare dimensioni `TM x TN x TK` arbitrarie.
-
-* Il kernel supporta il **caricamento collaborativo (Coalesced Loading)** anche quando il numero di thread nel blocco non corrisponde alla dimensione della tile di dati, disaccoppiando la geometria del calcolo dalla geometria della memoria.
-
-### C. Dispatcher Dinamico (Heuristic Hardware)
-
-All'avvio, il software interroga l'hardware sottostante (tramite `alpaka::getAccDevProps`) per determinare la configurazione ottimale:
-
-* **High-End (es. A100, L4):** Se supporta 1024 thread/blocco  Usa Tile .
-* **Mid-Range:** Se limitato nei registri  Usa Tile Rettangolare  (512 thread).
-* **Legacy:** Fallback a  (256 thread).
+**AlpaScalata** is a robust, portable, and highly optimized engine for General Matrix Multiplication ().
+It is designed to bridge the gap between high-level hardware abstraction (via **Alpaka**) and bare-metal performance, leveraging **MPI** for multi-GPU scalability and advanced **CUDA** optimization techniques for maximum throughput.
 
 ---
 
-## 2. Scelte di Design e Pattern Utilizzati
+## 🌟 Key Features
 
-### Pattern: Runtime Strategy Dispatcher
-
-Abbiamo implementato una variante del pattern Strategy. Invece di avere un unico kernel monolitico, il codice compila diverse specializzazioni del template (`launch_rect_kernel<32,32,32>`, `<16,32,32>`, etc.). A runtime, un `if-else` basato sulle proprietà dell'hardware devia l'esecuzione verso la specializzazione più efficiente.
-
-### Pattern: Double Buffering (Implicit) & Accumulation
-
-Nel percorso *Out-of-Core*, abbiamo implementato la logica di accumulo parziale.
-
-1. Il kernel accetta un flag `accumulate`.
-2. Al primo passaggio (`k=0`), sovrascrive il buffer di output (`C = A*B`).
-3. Ai passaggi successivi (`k>0`), somma al risultato esistente (`C += A*B`).
-Questo permette di ricostruire il risultato finale della moltiplicazione di matrici giganti processando solo sotto-blocchi.
-
-### Astrazione "Safe" delle View
-
-Per risolvere i problemi di allineamento di memoria (`cudaErrorInvalidPitchValue`) riscontrati con le API di basso livello, abbiamo incapsulato i puntatori raw in **Alpaka Views**.
-
-* Utilizziamo `createView` con stride espliciti per gestire correttamente sia buffer contigui (nel caso In-Core) che sottomatrici con pitch (nel caso Out-of-Core), garantendo la *Type Safety* imposta dalle versioni recenti di Alpaka.
+* **Distributed Computing:** Scales across multiple nodes/GPUs using MPI (1D Spatial Decomposition).
+* **Hardware Agnostic:** Built on **Alpaka**, allowing compilation for NVIDIA (CUDA), AMD (HIP), and CPUs from a single source code.
+* **Vectorized Execution:** Utilizes **128-bit Vectorized Loads** (`float4`) for maximum memory bandwidth.
+* **2D Register Tiling:** Implements "Thread Coarsening" where each thread computes a 4x4 micro-tile to increase arithmetic intensity.
+* **Logical Padding:** Automatically handles arbitrary matrix dimensions (odd/prime sizes) ensuring memory alignment without crashes.
+* **Async Pipeline:** Implements a 3-stage software pipeline (Compute/Upload/Download) to hide PCIe latency for large datasets.
 
 ---
 
-## 3. Perché Alpaka? (Confronto con CUDA Nativo)
+## 🏗 System Architecture
 
-Avremmo potuto scrivere tutto in CUDA C++ puro (`.cu`). Ecco un confronto critico delle scelte:
+The implementation is divided into three logical layers working in synergy:
 
-| Funzionalità | Implementazione CUDA Nativa | Implementazione Alpaka (La nostra scelta) |
-| --- | --- | --- |
-| **Portabilità** | Funziona solo su hardware NVIDIA. | Funziona su NVIDIA (CUDA), AMD (HIP), Intel (SYCL) e CPU (OpenMP) con lo stesso codice sorgente. |
-| **Gestione Memoria** | Accesso diretto a `cudaMemGetInfo` per byte esatti liberi. | Accesso a `getAccDevProps` (Totale VRAM). Abbiamo dovuto implementare una stima (`Totale - Riserva`) per mantenere la portabilità "pura" senza includere header CUDA. |
-| **Kernel Launch** | Sintassi `<<<grid, block>>>`. Semplice ma rigida. | Oggetto `WorkDiv`. Più verboso, ma astrae la griglia di calcolo su architetture diverse (es. CPU threads vs GPU warps). |
-| **Ottimizzazioni** | Possibilità di usare `WMMA` (Tensor Cores) e `__ldg` intrinsics. | Limitato alle funzionalità esposte dall'API (principalmente FP32 SIMT standard nel nostro caso). |
+### 1. Host Layer: Safety & Distribution (MPI + Padding)
 
-**Perché abbiamo scelto questo approccio:**
-L'obiettivo di "AlpaScalata" è la scalabilità e la portabilità. Pur sacrificando l'accesso a `cudaMemGetInfo` (risolto con una stima conservativa), abbiamo ottenuto un codice che può teoricamente girare su un supercomputer basato su AMD Instinct senza cambiare una virgola, mantenendo logiche avanzate come il batching.
+Before touching the GPU, the Host prepares the data to ensure **stability** and **alignment**.
+
+* **Logical Padding:** GPU hardware works best with 128-bit aligned memory. If a user requests a matrix of size , a naive kernel would crash or require slow boundary checks.
+* *Our Solution:* We round up dimensions to the nearest multiple of 4 (e.g., ).
+* We allocate a "frame" of zeros around the valid data.
+* **Result:** The Kernel *always* sees perfect alignment. `float4` instructions are safe to use everywhere.
+
+
+* **MPI Decomposition:**
+* **Matrix A:** Sliced horizontally. Each worker receives  rows.
+* **Matrix B:** Broadcasted fully to all workers.
+* **Matrix C:** Computed locally and gathered back to the Master node.
+
+
+
+### 2. Management Layer: The Hybrid Pipeline (Alpaka)
+
+The system decides at runtime how to execute the problem based on available VRAM.
+
+* **In-Core Path (Standard):** If the matrix fits in VRAM, pointers are passed directly to the kernel (Zero-Copy). Max throughput (~2.7 TFLOPS on L4).
+* **Out-of-Core Path (Pipelined):** If the matrix is too large, it is split into tiles (e.g., ). We use **3 Async Streams**:
+1. **Stream 1:** Compute Tile .
+2. **Stream 2:** Upload Tile .
+3. **Stream 3:** Download Tile .
+
+
+* *Benefit:* Hides the slow PCIe bus latency behind the GPU computation.
+
+
+
+### 3. Compute Layer: The "Ultimate" Kernel
+
+The kernel (`GemmCoarsenedKernel`) is where the raw performance comes from. It moves away from the naive "1 Thread = 1 Pixel" approach.
+
+* **Vectorized Global Loads (`float4`):**
+Instead of loading 1 `float` at a time (32-bit), we load 4 `floats` (128-bit) in a single instruction.
+* *Impact:* Reduces memory transaction overhead by 75%.
+
+
+* **2D Register Tiling:**
+Each thread calculates a **4x4 block (16 pixels)** of the output matrix.
+* Data is loaded into **Shared Memory** (Macro-Tile ).
+* Then loaded into **Registers** (Micro-Tile ).
+* *Impact:* drastic reduction of Shared Memory bandwidth pressure.
+
+
+* **Loop Unrolling:**
+Inner loops are unrolled via `#pragma unroll` to allow the compiler to pipeline Fused Multiply-Add (FMA) instructions.
 
 ---
 
-## 4. Limitazioni Attuali
+## 📊 Performance & Optimization Logic
 
-Nonostante la robustezza, l'implementazione presenta alcune limitazioni note:
+We compared different implementation strategies on an NVIDIA L4 GPU:
 
-1. **Stima della Memoria Conservativa:**
-Non potendo usare chiamate native del driver (per non rompere la portabilità), stimiamo la VRAM libera come `VRAM_Totale - 1GB`. Su sistemi con molti processi in background, questa stima potrebbe essere imprecisa.
-2. **Collo di Bottiglia PCIe (Batching):**
-Nel modo *Out-of-Core*, le performance crollano da ~2500 GFLOPS a ~1700 GFLOPS. Questo è fisiologico (il bus PCIe è molto più lento della VRAM), ma potrebbe essere mitigato implementando **Streams Asincroni** (copia del chunk N+1 mentre calcolo il chunk N), che però aggiungerebbero notevole complessità al codice Alpaka.
-3. **Mancanza di Tensor Cores:**
-Il kernel attuale usa istruzioni scalari FP32 (`float`). Non sfrutta le unità matriciali hardware (Tensor Cores) presenti sulla NVIDIA L4, che richiederebbero API specifiche non ancora pienamente standardizzate nel layer alto di Alpaka.
+| Kernel Version | Architecture Strategy | Performance (FP32) | Bottleneck |
+| --- | --- | --- | --- |
+| **Naive** | 1 Thread = 1 Pixel, Direct Global Mem | ~0.5 TFLOPS | Memory Latency |
+| **Tiled** | Shared Memory Blocking | ~1.1 TFLOPS | Memory Bandwidth |
+| **Coarsened** | 1 Thread = 16 Pixels, Scalar Loads | ~1.4 TFLOPS | Load Instruction Overhead |
+| **Full_Option** | **Coarsened + Vectorized (`float4`)** | **~2.7 TFLOPS** | Compute Bound (FP32) |
 
-## 5. Conclusione
+**Why `float4` matters:**
+Without vectorization, the GPU execution units (CUDA Cores) were starving, waiting for data. By fetching 128 bits at once, we saturated the memory bandwidth, allowing the compute units to run at full speed.
 
-Il modulo `gemm_alpaka_full_options` rappresenta lo stato dell'arte per un'implementazione portabile. Garantisce:
+---
 
-1. **Massima Performance** su dati che stanno in memoria (Zero-Copy).
-2. **Massima Affidabilità** su dati giganti (Batching automatico).
-3. **Adattabilità** su hardware diverso (Tiling Dinamico).
+## 🛠 Usage
 
-È la soluzione definitiva per benchmark che devono esplorare limiti hardware senza fallire in condizioni di stress.
+### Prerequisites
+
+* CMake 3.18+
+* CUDA Toolkit 11.0+
+* MPI Implementation (OpenMPI, MPICH)
+* C++17 Compiler
+
+### Build
+
+```bash
+mkdir build && cd build
+cmake .. -DENABLE_CUDA=ON -DENABLE_ALPAKA=ON -DCMAKE_BUILD_TYPE=Release
+make -j
+
+```
+
+### Run (MPI Distributed)
+
+To run a distributed benchmark on 2 GPUs with a matrix size of :
+
+```bash
+mpirun -np 2 ./src/benchmark_mpi 16384 16384 16384
+
+```
+
+To test the **Padding Robustness** (Odd dimensions):
+
+```bash
+mpirun -np 2 ./src/benchmark_mpi 16385 16385 16385
+
+```
+
+*Expected Output: `RESULT: OK` (System automatically handles padding).*
+
+---
+
+## 📝 Conclusion
+
+The `gemm_alpaka_full_options` ensures:
+
+1. **Maximum Performance** via Vectorization and Register Tiling.
+2. **Maximum Reliability** via Host-side Padding and Batching.
+3. **Scalability** via MPI.
 
