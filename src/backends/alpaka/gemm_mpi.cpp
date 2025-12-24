@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+#define GEMM_ENABLE_ALPAKA
+>>>>>>> 2ef9c240930f87157f282e459c78e9c31b4f9843
 #include "gemm/gemm.hpp"
 #include <algorithm>
 #include <alpaka/alpaka.hpp>
