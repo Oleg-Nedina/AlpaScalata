@@ -1,8 +1,7 @@
 #define GEMM_ENABLE_ALPAKA
 #include "gemm/gemm.hpp"
-#include <alpaka/alpaka.hpp>
-
 #include <algorithm>
+#include <alpaka/alpaka.hpp>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -16,20 +15,38 @@
 #include <unordered_map>
 #include <vector>
 
+/**
+ * @file benchmark_alpaka.cu
+ * @brief Micro-benchmark harness for Alpaka GEMM implementations.
+ *
+ * This executable is designed to measure the performance (Time and GFLOPS)
+ * of the various Alpaka GEMM solvers (Naive, Tiling, Full Options) on a single
+ * GPU.
+ *
+ * **Key Features:**
+ * - **Configurable:** Reads run parameters (size, repetitions, solver type)
+ * from a `.prm` file.
+ * - **Correctness Check:** Can verify GPU results against a CPU reference
+ * implementation (`--check N`).
+ * - **Performance Profiling:** Executes a loop of GEMM calls with warmup to
+ * measure stable execution time.
+ * - **CSV Output:** Prints results in CSV format for easy plotting.
+ */
 namespace alpaka_bench {
 
-// -----------------------------------------------------------------------------
-// 1. Configurazione Alpaka (GPU Forzata)
-// -----------------------------------------------------------------------------
 using Idx = std::size_t;
 using Dim1 = alpaka::DimInt<1>;
 using Dim2 = alpaka::DimInt<2>;
-
-// GPU CUDA
 using Acc = alpaka::AccGpuCudaRt<Dim2, Idx>;
 using PlatformAcc = alpaka::PlatformCudaRt;
 using PlatformHost = alpaka::PlatformCpu;
 
+/**
+ * @brief Holds the Alpaka runtime context.
+ *
+ * Encapsulates the Device, Queue, and Host Platform needed to execute Alpaka
+ * kernels. Initializing this once avoids overhead during the benchmark loop.
+ */
 struct Ctx {
   decltype(alpaka::getDevByIdx(PlatformAcc{}, 0u)) devAcc;
   alpaka::Queue<decltype(devAcc), alpaka::Blocking> queue;
@@ -40,9 +57,6 @@ struct Ctx {
         devHost(alpaka::getDevByIdx(PlatformHost{}, 0u)) {}
 };
 
-// -----------------------------------------------------------------------------
-// 2. Helpers
-// -----------------------------------------------------------------------------
 struct RunCfg {
   int warmup = 5;
   int reps = 20;
@@ -92,10 +106,24 @@ static inline void fill_random(std::vector<float> &v, unsigned seed) {
     x = dist(rng);
 }
 
-// Implementazione GEMM semplice su CPU per riferimento
+/**
+ * @brief Reference GEMM implementation on CPU.
+ *
+ * A simple, single-threaded triple-loop matrix multiplication:
+ * \f$ C_{i,j} = \sum_{k} A_{i,k} \times B_{k,j} \f$
+ *
+ * Used as the "Golden Standard" to verify the correctness of the GPU
+ * implementations.
+ *
+ * @param A Input Matrix A.
+ * @param B Input Matrix B.
+ * @param C Output Matrix C (will be overwritten).
+ * @param M Number of rows.
+ * @param N Number of columns.
+ * @param K Shared dimension.
+ */
 void cpu_gemm_ref(const float *A, const float *B, float *C, int M, int N,
                   int K) {
-  // Azzera C
   std::fill(C, C + (M * N), 0.0f);
 
   for (int i = 0; i < M; ++i) {
@@ -118,11 +146,28 @@ static void check_close(const std::vector<float> &got,
     if (diff > tol) {
       std::fprintf(stderr, "Mismatch at %zu: got=%f ref=%f diff=%e tol=%e\n", i,
                    got[i], ref[i], diff, tol);
-      std::exit(10); // Esci con errore se fallisce
+      std::exit(10);
     }
   }
 }
 
+/**
+ * @brief Verifies the correctness of the selected Alpaka solver.
+ *
+ * 1. Generates random matrices A and B on the Host.
+ * 2. Uploads them to the GPU.
+ * 3. Executes the selected GPU solver (Naive, Tiling, or Full).
+ * 4. Downloads the result C to the Host.
+ * 5. Computes the reference result using `cpu_gemm_ref`.
+ * 6. Compares the two results element-wise with a tolerance.
+ *
+ * Prints "CHECK_OK" if successful, or terminates with an error code if mismatch
+ * found.
+ *
+ * @param ctx The Alpaka context.
+ * @param N The matrix dimension (Square NxN).
+ * @param cfg The run configuration (solver type, seed).
+ */
 void verify_correctness(Ctx &ctx, int N, const RunCfg &cfg) {
   std::cout << "Running correctness check: Alpaka(GPU) vs CPU_Ref (N=" << N
             << ")... ";
@@ -133,18 +178,15 @@ void verify_correctness(Ctx &ctx, int N, const RunCfg &cfg) {
   size_t size_elems = (size_t)N * N;
   size_t size_bytes = size_elems * sizeof(float);
 
-  // Host Memory
   std::vector<float> Ah(size_elems), Bh(size_elems);
-  std::vector<float> Ch_alpaka(size_elems); // Risultato dalla GPU
-  std::vector<float> Ch_ref(size_elems);    // Risultato dalla CPU
+  std::vector<float> Ch_alpaka(size_elems);
+  std::vector<float> Ch_ref(size_elems);
 
   fill_random(Ah, cfg.seed);
   fill_random(Bh, cfg.seed + 1);
 
-  // 1. Calcolo Alpaka (GPU)
   auto extent = alpaka::Vec<Dim1, Idx>{(Idx)size_elems};
 
-  // Allocazione Buffer
   auto bufA_d = alpaka::allocBuf<float, Idx>(ctx.devAcc, extent);
   auto bufB_d = alpaka::allocBuf<float, Idx>(ctx.devAcc, extent);
   auto bufC_d = alpaka::allocBuf<float, Idx>(ctx.devAcc, extent);
@@ -153,16 +195,13 @@ void verify_correctness(Ctx &ctx, int N, const RunCfg &cfg) {
   auto bufB_h = alpaka::allocBuf<float, Idx>(ctx.devHost, extent);
   auto bufC_h = alpaka::allocBuf<float, Idx>(ctx.devHost, extent);
 
-  // Prepare dati pinned
   std::memcpy(alpaka::getPtrNative(bufA_h), Ah.data(), size_bytes);
   std::memcpy(alpaka::getPtrNative(bufB_h), Bh.data(), size_bytes);
 
-  // H2D
   alpaka::memcpy(ctx.queue, bufA_d, bufA_h, extent);
   alpaka::memcpy(ctx.queue, bufB_d, bufB_h, extent);
   alpaka::wait(ctx.queue);
 
-  // Esegui Kernel
   gemm::GemmShape shape{M, N, K};
   auto *pA = alpaka::getPtrNative(bufA_d);
   auto *pB = alpaka::getPtrNative(bufB_d);
@@ -178,24 +217,30 @@ void verify_correctness(Ctx &ctx, int N, const RunCfg &cfg) {
     std::cerr << "\nERROR: Unknown solver '" << cfg.solver << "'\n";
     std::exit(1);
   }
-  // D2H
   alpaka::memcpy(ctx.queue, bufC_h, bufC_d, extent);
   alpaka::wait(ctx.queue);
 
-  // Copia risultato in vector standard
   std::memcpy(Ch_alpaka.data(), alpaka::getPtrNative(bufC_h), size_bytes);
 
-  // 2. Calcolo CPU (Gold Standard)
   cpu_gemm_ref(Ah.data(), Bh.data(), Ch_ref.data(), M, N, K);
 
-  // 3. Confronto
   check_close(Ch_alpaka, Ch_ref);
   std::cout << "CHECK_OK\n";
 }
 
-// -----------------------------------------------------------------------------
-// 4. Benchmark Function
-// -----------------------------------------------------------------------------
+/**
+ * @brief Executes a single benchmark run for a specific size N.
+ *
+ * 1. Allocates and initializes memory.
+ * 2. Performs **Warmup** runs (results discarded) to wake up the GPU.
+ * 3. Measures the execution time of `cfg.reps` repetitions using `std::chrono`.
+ * 4. Ensures GPU synchronization (`alpaka::wait`) before and after the timer.
+ *
+ * @param ctx The Alpaka context.
+ * @param N The matrix dimension.
+ * @param cfg Configuration parameters (reps, warmup, solver).
+ * @return Average execution time in milliseconds.
+ */
 static float bench_alpaka_once_ms(Ctx &ctx, int N, const RunCfg &cfg) {
   const int M = N;
   const int K = N;
@@ -224,7 +269,6 @@ static float bench_alpaka_once_ms(Ctx &ctx, int N, const RunCfg &cfg) {
   auto *Cd = alpaka::getPtrNative(bufC_d);
   gemm::GemmShape shape{M, N, K};
 
-  // Helper lambda per lanciare il solver corretto
   auto run_solver = [&]() {
     if (cfg.solver == "alpaka_naive") {
       gemm::gemm_alpaka_naive(ctx.queue, Ad, Bd, Cd, shape);
@@ -238,18 +282,16 @@ static float bench_alpaka_once_ms(Ctx &ctx, int N, const RunCfg &cfg) {
     }
   };
 
-  //  Warmup
   for (int i = 0; i < cfg.warmup; ++i) {
     run_solver();
   }
   alpaka::wait(ctx.queue);
 
-  // Timing
   auto t0 = std::chrono::high_resolution_clock::now();
   for (int i = 0; i < cfg.reps; ++i) {
     run_solver();
   }
-  alpaka::wait(ctx.queue); // Assicura che la GPU abbia finito
+  alpaka::wait(ctx.queue);
   auto t1 = std::chrono::high_resolution_clock::now();
 
   double total_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -257,9 +299,23 @@ static float bench_alpaka_once_ms(Ctx &ctx, int N, const RunCfg &cfg) {
   return (float)(total_ms / cfg.reps);
 }
 
-// -----------------------------------------------------------------------------
-// 5. Loop di Benchmark
-// -----------------------------------------------------------------------------
+/**
+ * @brief Main benchmark loop iterating over matrix sizes.
+ *
+ * Iterates from `minN` to `maxN` with a stride of `step`.
+ * For each size, calls `bench_alpaka_once_ms` and computes the effective
+ * GFLOPS.
+ *
+ * **GFLOPS Formula:**
+ * \f$ \text{GFLOPS} = \frac{2 \times N^3}{\text{Time (s)} \times 10^9} \f$
+ *
+ * Prints the results to `stdout` in CSV format:
+ * `Solver,Precision,Size,Time_ms,GFLOPs`
+ *
+ * @param ctx The Alpaka context.
+ * @param cfg The parsed configuration.
+ * @return 0 on success.
+ */
 static int tb_alpaka_loop(Ctx &ctx, const RunCfg &cfg) {
   std::cout << "Solver,Precision,Size,Time_ms,GFLOPs\n";
 
@@ -276,9 +332,20 @@ static int tb_alpaka_loop(Ctx &ctx, const RunCfg &cfg) {
 
 } // namespace alpaka_bench
 
-// -----------------------------------------------------------------------------
-// 6. Main
-// -----------------------------------------------------------------------------
+/**
+ * @brief Entry point for the Micro-Benchmark executable.
+ *
+ * **Usage:**
+ * `./benchmark_alpaka --config <file.prm> [--check N]`
+ *
+ * - `--config`: Path to the parameter file defining the run (min/max size,
+ * reps, solver).
+ * - `--check`: If present, runs a correctness verification for size N instead
+ * of the benchmark loop.
+ *
+ * Parses arguments, initializes the device, and dispatches either the
+ * verification or the benchmark loop.
+ */
 int main(int argc, char **argv) {
   std::string config_file;
   int checkN = -1;
@@ -334,7 +401,6 @@ int main(int argc, char **argv) {
   std::cerr << "Accelerator: " << alpaka::getAccName<alpaka_bench::Acc>()
             << "\n";
 
-  // MODALITA' CHECK: Verifica Numerica Reale
   if (checkN > 0) {
     alpaka_bench::verify_correctness(ctx, checkN, cfg);
     return 0;

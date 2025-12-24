@@ -1,0 +1,91 @@
+#!/bin/bash
+#PBS -q gpu
+#PBS -l select=1:ncpus=8:ngpus=2:mem=20gb
+#PBS -l walltime=00:20:00
+#PBS -N alpascalata_bench
+
+set -euo pipefail
+
+# --- 1. SETUP LOGGING ---
+# Salva l'output in un file di log nella tua home
+LOG="${HOME}/alpascalata_bench_${PBS_JOBID}.log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== START JOB ==="
+date
+echo "JOBID: $PBS_JOBID"
+echo "NODE:  $(hostname)"
+echo "WORK DIR: $PBS_O_WORKDIR"
+
+# Spostati nella cartella da cui hai lanciato il job (presumibilmente ~/AlpaScalata)
+cd "$PBS_O_WORKDIR"
+
+# --- 2. AMBIENTE & SPACK ---
+echo "--- Loading Environment ---"
+source /software/spack-v1.0/share/spack/setup-env.sh
+
+# Carica CUDA e MPI (Fondamentale per la parte distribuita)
+spack load cuda
+spack load openmpi  # O il modulo MPI specifico del tuo cluster (es. intel-mpi)
+
+# Variabili d'ambiente per CUDA (dal tuo GPU_RUN.md)
+export MY_CUDA_ROOT="/software/spack-v1.0/opt/spack/linux-cascadelake/cuda-13.0.2-flsbrpd2nhr3wflionjcydwr5hhttjap"
+export PATH="${MY_CUDA_ROOT}/bin:${PATH}"
+export LD_LIBRARY_PATH="${MY_CUDA_ROOT}/lib64:${LD_LIBRARY_PATH}"
+
+# Verifica strumenti
+echo "NVCC Path: $(which nvcc)"
+echo "MPIRUN Path: $(which mpirun)"
+nvidia-smi
+
+# --- 3. COMPILAZIONE (Clean Build per sicurezza) ---
+echo "--- Building Project ---"
+rm -rf build
+
+# Configurazione CMake (Copiata esattamente dal tuo GPU_RUN.md)
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_CUDA=ON \
+  -DENABLE_ALPAKA=ON \
+  -DCMAKE_CUDA_COMPILER="${MY_CUDA_ROOT}/bin/nvcc" \
+  -DCUDAToolkit_ROOT="${MY_CUDA_ROOT}" \
+  -DCMAKE_CUDA_HOST_COMPILER="/usr/bin/g++" \
+  -DCMAKE_CXX_STANDARD=17 \
+  -DCMAKE_CUDA_STANDARD=17 \
+  -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0 -DALPAKA_ACC_GPU_CUDA_ENABLED" \
+  -DCMAKE_CUDA_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0 -allow-unsupported-compiler -DALPAKA_ACC_GPU_CUDA_ENABLED"
+
+# Compilazione parallela
+cmake --build build -j 8
+
+# Crea cartella risultati
+mkdir -p data/results
+
+# --- 4. ESECUZIONE MICRO-BENCHMARKS (Single GPU) ---
+echo "--- Running Micro Benchmarks (TB) ---"
+
+# Alpaka
+echo ">> Alpaka Naive Float..."
+./build/bench/micro/benchmark_alpaka \
+  --config config/alpaka_naive_float_small.prm \
+  > data/results/alpaka_naive_float_gpu_${PBS_JOBID}.csv
+
+# CUDA Nativo
+echo ">> CUDA Naive Float..."
+./build/bench/micro/benchmark_cuda \
+  --config config/cuda_naive_float_small.prm \
+  > data/results/cuda_naive_float_gpu_${PBS_JOBID}.csv
+
+# --- 5. ESECUZIONE MPI BENCHMARK (Multi GPU) ---
+echo "--- Running Distributed Benchmark (MPI) ---"
+
+# Test 1: Standard 16k (Performance Pura)
+echo ">> MPI Run: 16384 x 16384 x 16384"
+mpirun -np 2 ./build/src/benchmark_mpi 16384 16384 16384
+
+# Test 2: Padding Check (Dimensioni dispari)
+echo ">> MPI Run: Padding Test (16385)"
+mpirun -np 2 ./build/src/benchmark_mpi 16385 16385 16385
+
+echo "=== END JOB ==="
+date
