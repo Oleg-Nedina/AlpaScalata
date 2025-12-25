@@ -86,19 +86,3 @@ Each subdirectory contains its own README with more details.
     python3 scripts/plot/plot_results.py data/results/naive_float.csv
 
 
-   ## Extending the Project
-
-    # To add a new solver:
-
-   1) Implement the solver with the same GEMM API
-
-   2) Register it in the benchmark dispatcher
-
-   3) Reuse the same .prm configuration and correctness check
-
-   4) Compare results via generated plots
-
-  5) See the README files in src/ and bench/ for details.
-
-
-

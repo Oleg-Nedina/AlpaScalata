@@ -1,12 +1,12 @@
 
-## bench/
+## Bench
 
-Benchmark delle prestazioni.
+Performances benchmarks.
 
-I benchmark misurano:
-- tempo di esecuzione
+Benchmarks measure:
+- execution time
 - throughput (GFLOP/s)
-- scalabilità forte e debole
+- strong/weak scalability
 
-Ogni benchmark utilizza l’API comune GEMM e può essere eseguito
-con backend CUDA o Alpaka, garantendo confronti riproducibili.
+Each benchmark uses the common API GEMM and can be executed
+with  CUDA or Alpaka backend, granting reproducible confrontations.

@@ -9,8 +9,7 @@ set(PROJ_INC_DIRS
 
 if(ENABLE_CUDA)
   add_library(gemm_backend_cuda STATIC
-    backends/cuda/gemm_cuda.cu
-    backends/cuda/gemm_cuda_naive.cu
+          backends/cuda/gemm_cuda_naive.cu
     backends/cuda/gemm_cuda_full_options.cu
     backends/cuda/gemm_cuda_mpi.cu
   )

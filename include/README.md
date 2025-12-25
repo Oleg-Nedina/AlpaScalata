@@ -1,15 +1,21 @@
+# include/
 
-## include/
+**Public Project Headers**
 
-Header pubblici del progetto.
+This directory defines the **Common API** for Dense Matrix Multiplication (GEMM). It is designed to be completely independent of the underlying execution backend (e.g., CUDA or Alpaka).
 
-Questa cartella definisce l’**API comune** per il prodotto tra matrici dense (GEMM),
-indipendente dal backend di esecuzione (CUDA o Alpaka).
+##  Directory Contents
 
-Contiene:
-- interfacce (`gemm.hpp`)
-- tipi comuni (layout, datatype, configurazioni)
-- viste non-owning su matrici (tensor views)
+This abstraction layer contains the following components:
 
-Tutti i backend devono implementare questa interfaccia senza modificarne la semantica,
-così da permettere confronti equi di prestazioni.
+* **Interfaces:** Core function definitions (e.g., `gemm.hpp`).
+* **Common Types:** Shared definitions for memory layouts, datatypes, and configurations.
+* **Tensor Views:** Non-owning views for efficient matrix data handling.
+
+---
+
+##  Implementation Contract
+
+> **Crucial for Performance Benchmarking**
+
+All backends **must** implement this interface without modifying its semantics. This strict adherence is required to ensure fair and accurate performance comparisons across different hardware and programming models.
