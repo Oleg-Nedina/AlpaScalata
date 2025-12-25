@@ -5,6 +5,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <mpi.h>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 
 namespace gemm {
 
@@ -23,10 +26,10 @@ namespace gemm {
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-        // Setup GPU Device for this rank
+        // Setup GPU device for this rank
         select_gpu_device(rank);
 
-        // Calculate Partitioning of A
+        // Calculate partitioning of A
         // Determine how many rows each rank handles.
         std::vector<int> sendcounts(size);
         std::vector<int> displs(size);
@@ -44,40 +47,40 @@ namespace gemm {
             current_displ += sendcounts[i];
         }
 
-        // Prepare Local Data
+        // Prepare local data
         int local_m_rows = sendcounts[rank] / s.k;
         int local_A_size = sendcounts[rank];
         int B_size = s.k * s.n;
         int local_C_size = local_m_rows * s.n;
 
-        // Allocate host memory for local parts
-        std::vector<float> local_A(local_A_size);
-        std::vector<float> local_B(B_size);
-        std::vector<float> local_C(local_C_size);
+        float *local_A, *local_B, *local_C;
 
-        // Distribute Data
+        // Allocate host memory for local parts, in pinned
+        cudaMallocHost((void**)&local_A, local_A_size * sizeof(float));
+        cudaMallocHost((void**)&local_B, B_size * sizeof(float));
+        cudaMallocHost((void**)&local_C, local_C_size * sizeof(float));
+
+        // Distribute data
 
         // Scatter A: Root sends slices of A to everyone
         MPI_Scatterv(const_cast<float*>(A), sendcounts.data(), displs.data(), MPI_FLOAT,
-                     local_A.data(), local_A_size, MPI_FLOAT,
+                     local_A, local_A_size, MPI_FLOAT,
                      0, MPI_COMM_WORLD);
 
         // Broadcast B: Root sends entire B to everyone
+        // For Rank 0 sends from pinned memory.
+        // For Rank > 0 receives into pinned memory
         if (rank == 0) {
-            // Root copies its B to local buffer to simplify logic or just sends directly
-            MPI_Bcast(const_cast<float*>(B), B_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
-            // Root needs B in its local buffer for the compute function
-            std::copy(B, B + B_size, local_B.begin());
-        } else {
-            MPI_Bcast(local_B.data(), B_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
+            std::memcpy(local_B, B, B_size * sizeof(float));
         }
+        MPI_Bcast(local_B, B_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
-        // Local Compute (GPU Offload)
+        // Local compute (GPU Offload)
         GemmShape local_shape = {local_m_rows, s.n, s.k};
 
-        gemm_cuda_full_options(local_A.data(), local_B.data(), local_C.data(), local_shape);
+        gemm_cuda_full_options(local_A, local_B, local_C, local_shape);
 
-        // Gather Results
+        // Gather results
         // Recalculate counts for C (C has dimensions M x N, not M x K)
         std::vector<int> recvcounts_C(size);
         std::vector<int> displs_C(size);
@@ -92,9 +95,13 @@ namespace gemm {
             }
         }
 
-        MPI_Gatherv(local_C.data(), local_C_size, MPI_FLOAT,
+        MPI_Gatherv(local_C, local_C_size, MPI_FLOAT,
                     C, recvcounts_C.data(), displs_C.data(), MPI_FLOAT,
                     0, MPI_COMM_WORLD);
+
+        cudaFreeHost(local_A);
+        cudaFreeHost(local_B);
+        cudaFreeHost(local_C);
     }
 
 } // namespace gemm
