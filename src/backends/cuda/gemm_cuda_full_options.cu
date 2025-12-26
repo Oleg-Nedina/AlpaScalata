@@ -333,6 +333,9 @@ namespace gemm {
             cudaCheck(cudaMalloc(&d_B, (size_t)s.k * ldb * sizeof(float)), "Malloc B");
             cudaCheck(cudaMalloc(&d_C, (size_t)s.m * ldc * sizeof(float)), "Malloc C");
 
+            cudaCheck(cudaMemset(d_A, 0, (size_t)s.m * lda * sizeof(float)), "Zero A");
+            cudaCheck(cudaMemset(d_B, 0, (size_t)s.k * ldb * sizeof(float)), "Zero B");
+
             cudaCheck(cudaMemcpy2D(d_A, lda*sizeof(float), A, s.k*sizeof(float), s.k*sizeof(float), s.m, cudaMemcpyHostToDevice), "Copy A");
 
             cudaCheck(cudaMemcpy2D(d_B, ldb*sizeof(float), B, s.n*sizeof(float), s.n*sizeof(float), s.k, cudaMemcpyHostToDevice), "Copy B");
