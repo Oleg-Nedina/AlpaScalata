@@ -4,8 +4,17 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 namespace gemm {
+    // Tuning constants
+    constexpr int BK = 8; // K-dimension unroll factor
+    constexpr int TM = 4; // Rows per thread
+    constexpr int TN = 4; // Cols per thread
+
+    inline int align_stride(int n) {
+        return (n + 3) & ~3;
+    }
 
     void safe_host_register(const void* ptr, size_t size) {
         cudaPointerAttributes attributes;
@@ -34,115 +43,185 @@ namespace gemm {
     }
 
     __global__ void gemm_full_options_kernel(const float* __restrict__ A, const float* __restrict__ B, float* __restrict__ C,
-                                             int m, int n, int k, int Ns_offset, int TileWidth, bool accumulation_flag) {
+                                             int M, int N, int K,
+                                             int lda, int ldb, int ldc,
+                                             bool accumulation_flag) {
 
-        int row = blockIdx.y * TileWidth + threadIdx.y; // global thread row position
-        int col = blockIdx.x * TileWidth + threadIdx.x; // global thread col position
+        // Dynamic tile dim
+        int BM = blockDim.y * TM;
+        int BN = blockDim.x * TN;
 
-        extern __shared__ float Ms_Ns[]; //dynamic shared memory declaration
+        extern __shared__ float shared_mem[]; //dynamic shared memory declaration
+        float* As = shared_mem;
+        float* Bs = shared_mem + (BM * BK);
 
-        float *M_s = (float *)Ms_Ns; //first part
-        float *N_s = (float *)Ms_Ns + Ns_offset; //second part
+        int bx = blockIdx.x; // Thread x
+        int by = blockIdx.y; // Thread y
+        int tx = threadIdx.x; // Block x
+        int ty = threadIdx.y; // Block y
+        int tid = ty * blockDim.x + tx; // Thread id
+        int threadsPerBlock = blockDim.x * blockDim.y;
 
-        float acc = 0.0f;
+        int rowStart = by * BM;
+        int colStart = bx * BN;
 
-        for (int t = 0; t < (k + TileWidth - 1) / TileWidth; ++t) {
+        float acc[TM][TN] = {0.0f};
+
+        float regA[TM];
+        float regB[TN];
+        int numTiles = (K + BK - 1) / BK;
+
+        for (int t = 0; t < numTiles; ++t) {
+
+            int tiledK = t * BK;
 
             // LOAD PHASE
 
-            // Load A into M_s
-            if(row >= m || (t * TileWidth + threadIdx.x) >= k) { //boundary check
-                M_s[threadIdx.y * TileWidth + threadIdx.x] = 0.0f;
-            }
-            else{
-                M_s[threadIdx.y * TileWidth + threadIdx.x] = A[(size_t)row * k + t * TileWidth + threadIdx.x];
+            // Load A
+            int totalVecA = (BM * BK) / 4;
+            for (int i = tid; i < totalVecA; i += threadsPerBlock) {
+                int vecRow = i / (BK / 4);
+                int vecCol = i % (BK / 4);
+                int col = vecCol * 4;
+
+                int globalRow = rowStart + vecRow;
+                int globalCol = tiledK + col;
+
+                if (globalRow < M && globalCol < K) {
+                    float4 loaded = *reinterpret_cast<const float4*>(&A[globalRow * lda + globalCol]);
+                    // Manual pointer arithmetic for 2D array in 1D dynamic shared memory
+                    *reinterpret_cast<float4*>(&As[vecRow * BK + col]) = loaded;
+                } else {
+                    // Padding with zeros
+                    float* ptr = &As[vecRow * BK + col];
+                    ptr[0] = 0.0f; ptr[1] = 0.0f; ptr[2] = 0.0f; ptr[3] = 0.0f;
+                }
             }
 
-            // Load B into N_s
-            if ((t * TileWidth + threadIdx.y) >= k || col >= n) { //boundary check
-                N_s[threadIdx.y * TileWidth + threadIdx.x] = 0.0f;
-            } else {
-                N_s[threadIdx.y * TileWidth + threadIdx.x] = B[(size_t)(t * TileWidth + threadIdx.y) * n + col];
+            // Load B
+            int totalVecB = (BK * BN) / 4;
+            for (int i = tid; i < totalVecB; i += threadsPerBlock) {
+                int vecRow = i / (BN / 4);
+                int vecCol = i % (BN / 4);
+                int col = vecCol * 4;
+
+                int globalRow = tiledK + vecRow;
+                int globalCol = colStart + col;
+
+                if (globalRow < K && globalCol < N) {
+                    float4 loaded = *reinterpret_cast<const float4*>(&B[globalRow * ldb + globalCol]);
+                    *reinterpret_cast<float4*>(&Bs[vecRow * BN + col]) = loaded;
+                } else {
+                    float* ptr = &Bs[vecRow * BN + col];
+                    ptr[0] = 0.0f; ptr[1] = 0.0f; ptr[2] = 0.0f; ptr[3] = 0.0f;
+                }
             }
 
             // SYNC (Wait for load)
             __syncthreads();
 
-            // ACCUMULATION PHASE
-            for (int i = 0; i < TileWidth; ++i) {
-                acc = fmaf(M_s[threadIdx.y * TileWidth + i], N_s[i * TileWidth + threadIdx.x], acc);
+            // COMPUTE PHASE (Shared -> Registers -> ALU)
+            #pragma unroll
+            for (int k = 0; k < BK; ++k) {
+                #pragma unroll
+                for (int i = 0; i < TM; ++i) {
+                    regA[i] = As[(ty * TM + i) * BK + k];
+                }
+                #pragma unroll
+                for (int j = 0; j < TN; ++j) {
+                    regB[j] = Bs[k * BN + (tx * TN + j)];
+                }
+
+                #pragma unroll
+                for (int i = 0; i < TM; ++i) {
+                    #pragma unroll
+                    for (int j = 0; j < TN; ++j) {
+                        acc[i][j] += regA[i] * regB[j];
+                    }
+                }
             }
 
             // SYNC (Wait for compute before next load)
             __syncthreads();
         }
 
-        // Write Result
-        if (row < m && col < n) {
-            if(accumulation_flag) {
-                C[(size_t)row * n + col] += acc;
-            }
-            else {
-                C[(size_t)row * n + col] = acc;
+        // STORE PHASE (Registers -> Global)
+        #pragma unroll
+        for (int i = 0; i < TM; ++i) {
+            #pragma unroll
+            for (int j = 0; j < TN; ++j) {
+                int globalRow = rowStart + ty * TM + i;
+                int globalCol = colStart + tx * TN + j;
+
+                if (globalRow < M && globalCol < N) {
+                    size_t idx = (size_t)globalRow * ldc + globalCol;
+                    if (accumulation_flag)
+                        C[idx] += acc[i][j];
+                    else
+                        C[idx] = acc[i][j];
+                }
             }
         }
     }
 
-    int get_optimal_tile_width(int deviceId) {
+    dim3 get_optimal_block_dim(int deviceId) {
         cudaDeviceProp prop;
         cudaGetDeviceProperties(&prop, deviceId);
 
+        // Max threads per block is usually 1024, so side is capped at 32
+        int max_threads_side = (int)std::sqrt((double)prop.maxThreadsPerBlock);
         //target to hide mem latency: 2 (or 4: to test)
         int target_blocks_per_SM = 2;
         // Calculate Shared Memory per block to hit that target
         size_t shared_mem_per_block_target = prop.sharedMemPerSM / target_blocks_per_SM;
         // Convert shared memory bytes to max elements for 2 (4) tiles (A and B)
-        int max_elements_per_block = (int)(shared_mem_per_block_target / (2 * sizeof(float)));
-        int side_from_shared_mem = (int)std::sqrt((double)max_elements_per_block);
-        // Max threads per block is usually 1024, so side is capped at 32
-        int side_from_threads = (int)std::sqrt((double)prop.maxThreadsPerBlock);
+        int max_elements_per_block = (int)(shared_mem_per_block_target / (size_t)256);
 
-        // Final TileWidth Selection
-        int TileWidth = std::min(side_from_shared_mem, side_from_threads);
+        // Final selection
+        int TileWidth = std::min(max_threads_side, max_elements_per_block);
 
         // Alignment to Warp Size (32)
         if (TileWidth >= 32) TileWidth = 32;
         else if (TileWidth >= 16) TileWidth = 16;
         else TileWidth = 8;
 
-        return TileWidth;
+        return dim3(TileWidth, TileWidth, 1);
     }
 
     void launch_gemm_kernel(const float *A, const float *B, float *C,
                             int m, int n, int k,
-                            int TileWidth, bool accumulation_flag, cudaStream_t stream) {
+                            int lda, int ldb, int ldc,
+                            bool accumulation_flag, cudaStream_t stream) {
 
-        int tile_elements = TileWidth * TileWidth;
+        int deviceId;
+        cudaGetDevice(&deviceId);
+
+        dim3 block = get_optimal_block_dim(deviceId);
+        int BM = block.y * TM;
+        int BN = block.x * TN;
+        dim3 grid((n + BN - 1) / BN, (m + BM - 1) / BM, 1);
+
         //total elements in shared memory
-        size_t shared_mem_size_bytes = 2 * tile_elements * sizeof(float);
-        //offset for second part of dynamic shared memory
-        int Ns_offset = tile_elements;
-
-        dim3 block(TileWidth, TileWidth, 1);
-        dim3 grid((n + TileWidth - 1) / TileWidth, (m + TileWidth - 1) / TileWidth, 1);
+        size_t shared_mem_size_bytes = (BM * BK + BK * BN) * sizeof(float);
 
         gemm_full_options_kernel<<<grid, block, shared_mem_size_bytes, stream>>>(
-                A, B, C, m, n, k, Ns_offset, TileWidth, accumulation_flag
+                A, B, C, m, n, k, lda, ldb, ldc, accumulation_flag
         );
         cudaCheck(cudaGetLastError(), "kernel launch");
     }
 
     void upload_tile(float* d_dst, const float* h_src,
-                     int big_M, int big_N, // Dimensions of the full host matrix
+                     int host_stride_elements,
+                     int device_stride_elements,
                      int r_offset, int c_offset, // Top-left corner of the tile
                      int tile_rows, int tile_cols, cudaStream_t stream) {
 
         // Device is tightly packed
-        size_t dpitch = tile_cols * sizeof(float);
+        size_t dpitch = device_stride_elements * sizeof(float);
         // Host is strided by full width
-        size_t spitch = big_N * sizeof(float);
+        size_t spitch = host_stride_elements * sizeof(float);
 
-        const float* src_ptr = h_src + ((size_t)r_offset * big_N) + c_offset;
+        const float* src_ptr = h_src + ((size_t)r_offset * host_stride_elements) + c_offset;
 
         cudaCheck(cudaMemcpy2DAsync(d_dst, dpitch, src_ptr, spitch,
                                tile_cols * sizeof(float), tile_rows,
@@ -150,14 +229,15 @@ namespace gemm {
     }
 
     void download_tile(float* h_dst, const float* d_src,
-                       int big_M, int big_N,
+                       int host_stride_elements,
+                       int device_stride_elements,
                        int r_offset, int c_offset,
                        int tile_rows, int tile_cols, cudaStream_t stream) {
 
-        size_t dpitch = big_N * sizeof(float);      // Host is strided by full width
-        size_t spitch = tile_cols * sizeof(float);  // Device is tightly packed
+        size_t dpitch = host_stride_elements * sizeof(float);
+        size_t spitch = device_stride_elements * sizeof(float);
 
-        float* dst_ptr = h_dst + ((size_t)r_offset * big_N) + c_offset;
+        float* dst_ptr = h_dst + ((size_t)r_offset * host_stride_elements) + c_offset;
 
         cudaCheck(cudaMemcpy2DAsync(dst_ptr, dpitch, d_src, spitch,
                                tile_cols * sizeof(float), tile_rows,
@@ -165,11 +245,11 @@ namespace gemm {
     }
 
     void gemm_out_of_core(const float* h_A, const float* h_B, float* h_C,
-                          int M, int N, int K, int TileWidth) {
+                          int M, int N, int K) {
 
         // Define Chunk Size
         const int CHUNK_SIZE = 4096;
-        const int N_STREAMS = 2; // Double buffering
+        const int N_STREAMS = 3; // Triple buffering
 
         // Pin host memory
         safe_host_register(h_A, (size_t)M * K * sizeof(float));
@@ -193,6 +273,7 @@ namespace gemm {
             for (int j = 0; j < N; j += CHUNK_SIZE) {
 
                 int s = stream_idx % N_STREAMS;
+                cudaCheck(cudaStreamSynchronize(streams[s]), "Stream Sync");
                 int m_curr = std::min(CHUNK_SIZE, M - i);
                 int n_curr = std::min(CHUNK_SIZE, N - j);
 
@@ -202,17 +283,18 @@ namespace gemm {
                     bool accumulation_flag = (l > 0);
 
                     // Upload Chunks
-                    upload_tile(d_A[s], h_A, M, K, i, l, m_curr, k_curr, streams[s]);
-                    upload_tile(d_B[s], h_B, K, N, l, j, k_curr, n_curr, streams[s]);
+                    upload_tile(d_A[s], h_A, K, CHUNK_SIZE, i, l, m_curr, k_curr, streams[s]);
+                    upload_tile(d_B[s], h_B, N, CHUNK_SIZE, l, j, k_curr, n_curr, streams[s]);
 
                     // Compute
                     launch_gemm_kernel(d_A[s], d_B[s], d_C[s],
                                        m_curr, n_curr, k_curr,
-                                       TileWidth, accumulation_flag, streams[s]);
+                                       CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE,
+                                       accumulation_flag, streams[s]);
                 }
 
                 // Download Result
-                download_tile(h_C, d_C[s], M, N, i, j, m_curr, n_curr, streams[s]);
+                download_tile(h_C, d_C[s], N, CHUNK_SIZE, i, j, m_curr, n_curr, streams[s]);
                 stream_idx++;
             }
         }
@@ -229,12 +311,17 @@ namespace gemm {
         int deviceId;
         cudaGetDevice(&deviceId);
         //get optimal TileWidth
-        int TileWidth = get_optimal_tile_width(deviceId);
+        dim3 TileWidth = get_optimal_block_dim(deviceId);
         //check memory requirements
         size_t free_byte, total_byte;
         cudaMemGetInfo(&free_byte, &total_byte);
 
-        size_t required = (size_t)s.m * s.k + (size_t)s.k * s.n + (size_t)s.m * s.n;
+        // Calculate padded requirements
+        int lda = align_stride(s.k);
+        int ldb = align_stride(s.n);
+        int ldc = align_stride(s.n);
+
+        size_t required = (size_t)s.m * lda + (size_t)s.k * ldb + (size_t)s.m * ldc;
         required *= sizeof(float);
 
         // Safety: Leave arbitrary 500MB for system/overhead
@@ -242,22 +329,23 @@ namespace gemm {
         if(required + margin < free_byte) {
             //no banching
             float *d_A, *d_B, *d_C;
-            cudaCheck(cudaMalloc(&d_A, s.m * s.k * sizeof(float)), "Malloc A");
-            cudaCheck(cudaMalloc(&d_B, s.k * s.n * sizeof(float)), "Malloc B");
-            cudaCheck(cudaMalloc(&d_C, s.m * s.n * sizeof(float)), "Malloc C");
+            cudaCheck(cudaMalloc(&d_A, (size_t)s.m * lda * sizeof(float)), "Malloc A");
+            cudaCheck(cudaMalloc(&d_B, (size_t)s.k * ldb * sizeof(float)), "Malloc B");
+            cudaCheck(cudaMalloc(&d_C, (size_t)s.m * ldc * sizeof(float)), "Malloc C");
 
-            cudaCheck(cudaMemcpy(d_A, A, s.m * s.k * sizeof(float), cudaMemcpyHostToDevice), "Copy A");
-            cudaCheck(cudaMemcpy(d_B, B, s.k * s.n * sizeof(float), cudaMemcpyHostToDevice), "Copy B");
+            cudaCheck(cudaMemcpy2D(d_A, lda*sizeof(float), A, s.k*sizeof(float), s.k*sizeof(float), s.m, cudaMemcpyHostToDevice), "Copy A");
 
-            launch_gemm_kernel(d_A, d_B, d_C, s.m, s.n, s.k, TileWidth, false, 0);
+            cudaCheck(cudaMemcpy2D(d_B, ldb*sizeof(float), B, s.n*sizeof(float), s.n*sizeof(float), s.k, cudaMemcpyHostToDevice), "Copy B");
 
-            cudaCheck(cudaMemcpy(C, d_C, s.m * s.n * sizeof(float), cudaMemcpyDeviceToHost), "Copy C");
+            launch_gemm_kernel(d_A, d_B, d_C, s.m, s.n, s.k, lda, ldb, ldc, false, 0);
+
+            cudaCheck(cudaMemcpy2D(C, s.n*sizeof(float), d_C, ldc*sizeof(float), s.n*sizeof(float), s.m, cudaMemcpyDeviceToHost), "Copy C");
 
             cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
         }
         else {
             //batching
-            gemm_out_of_core(A, B, C, s.m, s.n, s.k, TileWidth);
+            gemm_out_of_core(A, B, C, s.m, s.n, s.k);
         }
 
         cudaCheck(cudaDeviceSynchronize(), "device sync");
