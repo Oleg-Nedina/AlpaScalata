@@ -41,7 +41,7 @@ namespace gemm {
         int current_displ = 0;
         for (int i = 0; i < size; ++i) {
             int rows = rows_per_proc + (i < remainder ? 1 : 0);
-            // Count in ELEMENTS (floats)
+            // Count elements
             sendcounts[i] = rows * s.k;
             displs[i] = current_displ;
             current_displ += sendcounts[i];

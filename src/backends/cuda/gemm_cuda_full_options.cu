@@ -51,7 +51,7 @@ namespace gemm {
         int BM = blockDim.y * TM;
         int BN = blockDim.x * TN;
 
-        extern __shared__ float shared_mem[]; //dynamic shared memory declaration
+        extern __shared__ float shared_mem[]; // Dynamic shared memory declaration
         float* As = shared_mem;
         float* Bs = shared_mem + (BM * BK);
 
@@ -172,7 +172,7 @@ namespace gemm {
         int max_threads_side = (int)std::sqrt((double)prop.maxThreadsPerBlock);
         //target to hide mem latency: 2 (or 4: to test)
         int target_blocks_per_SM = 2;
-        // Calculate Shared Memory per block to hit that target
+        // Calculate shared memory per block to hit that target
         size_t shared_mem_per_block_target = prop.sharedMemPerSM / target_blocks_per_SM;
         // Convert shared memory bytes to max elements for 2 (4) tiles (A and B)
         int max_elements_per_block = (int)(shared_mem_per_block_target / (size_t)256);
@@ -180,7 +180,7 @@ namespace gemm {
         // Final selection
         int TileWidth = std::min(max_threads_side, max_elements_per_block);
 
-        // Alignment to Warp Size (32)
+        // Alignment to Warp size (32)
         if (TileWidth >= 32) TileWidth = 32;
         else if (TileWidth >= 16) TileWidth = 16;
         else TileWidth = 8;
@@ -247,7 +247,7 @@ namespace gemm {
     void gemm_out_of_core(const float* h_A, const float* h_B, float* h_C,
                           int M, int N, int K) {
 
-        // Define Chunk Size
+        // Define chunk size
         const int CHUNK_SIZE = 4096;
         const int N_STREAMS = 3; // Triple buffering
 
@@ -282,7 +282,7 @@ namespace gemm {
                     int k_curr = std::min(CHUNK_SIZE, K - l);
                     bool accumulation_flag = (l > 0);
 
-                    // Upload Chunks
+                    // Upload chunks
                     upload_tile(d_A[s], h_A, K, CHUNK_SIZE, i, l, m_curr, k_curr, streams[s]);
                     upload_tile(d_B[s], h_B, N, CHUNK_SIZE, l, j, k_curr, n_curr, streams[s]);
 
@@ -293,7 +293,7 @@ namespace gemm {
                                        accumulation_flag, streams[s]);
                 }
 
-                // Download Result
+                // Download result
                 download_tile(h_C, d_C[s], N, CHUNK_SIZE, i, j, m_curr, n_curr, streams[s]);
                 stream_idx++;
             }
@@ -310,9 +310,7 @@ namespace gemm {
     void gemm_cuda_full_options(const float *A, const float *B, float *C, GemmShape s) {
         int deviceId;
         cudaGetDevice(&deviceId);
-        //get optimal TileWidth
-        dim3 TileWidth = get_optimal_block_dim(deviceId);
-        //check memory requirements
+        // Check memory requirements
         size_t free_byte, total_byte;
         cudaMemGetInfo(&free_byte, &total_byte);
 
@@ -327,7 +325,7 @@ namespace gemm {
         // Safety: Leave arbitrary 500MB for system/overhead
         size_t margin = 500 * 1024 * 1024;
         if(required + margin < free_byte) {
-            //no banching
+            // No banching
             float *d_A, *d_B, *d_C;
             cudaCheck(cudaMalloc(&d_A, (size_t)s.m * lda * sizeof(float)), "Malloc A");
             cudaCheck(cudaMalloc(&d_B, (size_t)s.k * ldb * sizeof(float)), "Malloc B");
@@ -347,7 +345,7 @@ namespace gemm {
             cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
         }
         else {
-            //batching
+            // Batching
             gemm_out_of_core(A, B, C, s.m, s.n, s.k);
         }
 
