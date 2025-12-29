@@ -5,7 +5,7 @@ It is designed to bridge the gap between high-level hardware abstraction (via **
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
 * **Distributed Computing:** Scales across multiple nodes/GPUs using MPI (1D Spatial Decomposition).
 * **Hardware Agnostic:** Built on **Alpaka**, allowing compilation for NVIDIA (CUDA), AMD (HIP), and CPUs from a single source code.
@@ -16,7 +16,7 @@ It is designed to bridge the gap between high-level hardware abstraction (via **
 
 ---
 
-## 🏗 System Architecture
+## System Architecture
 
 The implementation is divided into three logical layers working in synergy:
 
@@ -73,7 +73,7 @@ Inner loops are unrolled via `#pragma unroll` to allow the compiler to pipeline 
 
 ---
 
-## 📊 Performance & Optimization Logic
+## Performance & Optimization Logic
 
 We compared different implementation strategies on an NVIDIA L4 GPU:
 
@@ -127,7 +127,7 @@ mpirun -np 2 ./src/benchmark_mpi 16385 16385 16385
 
 ---
 
-## 📝 Conclusion
+## Conclusion
 
 The `gemm_alpaka_full_options` ensures:
 
