@@ -111,10 +111,10 @@ Eseguiamo il benchmark su più processi (multi-GPU) usando `mpirun`.
 
 **Sintassi:** `mpirun -np <NUM_GPU> ./build/src/benchmark_mpi <M> <N> <K>`
 
-1. **Test Standard (Matrice 16k su 2 GPU):**
+1. **Test Standard (Matrice 16k su 2 GPU):**  (nota che oversubscribe è necessario per usare 2 gpu)
 
 ```bash
-mpirun -np 2 ./build/src/benchmark_mpi 16384 16384 16384
+mpirun --oversubscribe -n 2 ./build/src/benchmark_mpi 16384 16384 16384
 
 ```
 
