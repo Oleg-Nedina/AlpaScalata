@@ -121,7 +121,7 @@ mpirun --oversubscribe -n 2 ./build/src/benchmark_mpi 16384 16384 16384
 2. **Test Padding / Robustezza (Dimensioni dispari):**
 
 ```bash
-mpirun -np 2 ./build/src/benchmark_mpi 16385 16385 16385
+mpirun --oversubscribe -np 2 ./build/src/benchmark_mpi 16385 16385 16385
 
 ```
 
