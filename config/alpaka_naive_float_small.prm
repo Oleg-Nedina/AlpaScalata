@@ -1,8 +1,8 @@
 solver = full
 precision = float
-min = 64
-max = 12288
-step = 256
+min = 32
+max = 8192
+step = 128
 reps = 5
 warmup = 2
 seed = 123

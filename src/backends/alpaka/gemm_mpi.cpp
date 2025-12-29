@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
       N_real = std::atoi(argv[2]);
       K_real = std::atoi(argv[3]);
     } else {
-      std::cout << "Uso: mpirun ... ./benchmark_mpi <M> <N> <K>" << std::endl;
+      std::cout << "Use: mpirun ... ./benchmark_mpi <M> <N> <K>" << std::endl;
       std::cout << "Defaulting to 16384x16384x16384" << std::endl;
     }
   }
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
           (double)(static_cast<size_t>(M_pad) * K_pad +
                    static_cast<size_t>(M_pad) * N_pad + size_B_pad) *
           4.0 / 1e9;
-      std::cout << "Master: Allocazione RAM (Padded) ~" << gb_req << " GB..."
+      std::cout << "Master: Allocation of RAM (Padded) ~" << gb_req << " GB..."
                 << std::endl;
       std::cout << "Padding: [" << M_real << "x" << N_real << "x" << K_real
                 << "] -> [" << M_pad << "x" << N_pad << "x" << K_pad << "]"
@@ -139,20 +139,21 @@ int main(int argc, char **argv) {
 
 #pragma omp parallel for
       for (int r = 0; r < M_real; ++r) {
+        float val = (float)(r % 100);
         for (int c = 0; c < K_real; ++c) {
-          h_A_full[r * K_pad + c] = 1.0f;
+          h_A_full[r * K_pad + c] = val;
         }
       }
 
 #pragma omp parallel for
       for (int r = 0; r < K_real; ++r) {
         for (int c = 0; c < N_real; ++c) {
-          h_B[r * N_pad + c] = 2.0f;
+          h_B[r * N_pad + c] = 1.0f;
         }
       }
     }
   } catch (const std::bad_alloc &e) {
-    std::cerr << "ERRORE CRITICO: RAM Insufficiente! " << e.what() << std::endl;
+    std::cerr << "ERROR: insufficient RAM ! " << e.what() << std::endl;
     MPI_Abort(MPI_COMM_WORLD, 1);
   }
 
@@ -160,15 +161,16 @@ int main(int argc, char **argv) {
     MPI_Bcast(h_B.data(), size_B_pad, MPI_FLOAT, 0, MPI_COMM_WORLD);
   } else {
     if (world_rank == 0)
-      std::cout << "Warning: B troppo grande, genero localmente." << std::endl;
+      std::cout << "Warning: B to big, local generation." << std::endl;
+
     std::fill(h_B.begin(), h_B.end(), 0.0f);
     for (int r = 0; r < K_real; ++r)
       for (int c = 0; c < N_real; ++c)
-        h_B[r * N_pad + c] = 2.0f;
+        h_B[r * N_pad + c] = 1.0f;
   }
 
   if (world_rank == 0)
-    std::cout << "Distribuendo A ai worker..." << std::endl;
+    std::cout << "partitiong A" << std::endl;
 
   MPI_Scatter(h_A_full.data(), M_local_pad * K_pad, MPI_FLOAT, h_A_local.data(),
               M_local_pad * K_pad, MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -178,7 +180,7 @@ int main(int argc, char **argv) {
 
   if (num_gpus == 0) {
     if (world_rank == 0)
-      std::cerr << "ERRORE: Nessuna GPU rilevata!" << std::endl;
+      std::cerr << "ERROR : none GPU " << std::endl;
     MPI_Finalize();
     return 1;
   }
@@ -190,7 +192,7 @@ int main(int argc, char **argv) {
   double start_time = MPI_Wtime();
 
   if (world_rank == 0)
-    std::cout << ">>> AVVIO CALCOLO GPU <<<" << std::endl;
+    std::cout << ">>> START GPU <<<" << std::endl;
 
   gemm::GemmShape local_shape = {M_local_pad, N_pad, K_pad};
 
@@ -201,7 +203,7 @@ int main(int argc, char **argv) {
   double end_time = MPI_Wtime();
 
   if (world_rank == 0)
-    std::cout << "Raccolta risultati (Gather)..." << std::endl;
+    std::cout << " Gather results..." << std::endl;
 
   MPI_Gather(h_C_local.data(), M_local_pad * N_pad, MPI_FLOAT, h_C_full.data(),
              M_local_pad * N_pad, MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -212,34 +214,45 @@ int main(int argc, char **argv) {
 
     std::cout << "------------------------------------------------"
               << std::endl;
-    std::cout << "Dimensione Reale:  " << M_real << " x " << N_real << " x "
-              << K_real << std::endl;
-    std::cout << "Tempo Totale:      " << elapsed << " s" << std::endl;
-    std::cout << "TFLOPS Utili:      " << gflops / 1000.0 << " TFLOPS"
+    std::cout << "Real dim :  " << M_real << " x " << N_real << " x " << K_real
+              << std::endl;
+    std::cout << "Total time:      " << elapsed << " s" << std::endl;
+    std::cout << "TFLOPS utilized:      " << gflops / 1000.0 << " TFLOPS"
               << std::endl;
     std::cout << "------------------------------------------------"
               << std::endl;
 
-    float expected = 2.0f * K_real;
-    float val_0_0 = h_C_full[0];
+    std::cout << "Verification ..." << std::endl;
 
-    std::cout << "Verifica C[0][0]: " << val_0_0 << " (Atteso: " << expected
-              << ")" << std::endl;
+    int errors = 0;
+    std::vector<int> rows_to_check = {0, M_real / 2, M_real - 1, M_real / 4};
 
-    bool pass = (std::abs(val_0_0 - expected) < 0.1);
+    for (int r : rows_to_check) {
+      if (r < 0 || r >= M_real)
+        continue;
 
-    if (M_real > 0 && N_real > 0) {
-      size_t idx_last =
-          (static_cast<size_t>(M_real) - 1) * N_pad + (N_real - 1);
-      float val_last = h_C_full[idx_last];
-      if (std::abs(val_last - expected) > 0.1)
-        pass = false;
+      float expected = (float)(r % 100) * (float)K_real;
+
+      float val_first = h_C_full[r * N_pad + 0];
+      float val_last = h_C_full[r * N_pad + (N_real - 1)];
+
+      bool row_pass = true;
+      if (std::abs(val_first - expected) > 0.1f)
+        row_pass = false;
+      if (std::abs(val_last - expected) > 0.1f)
+        row_pass = false;
+
+      if (!row_pass) {
+        std::cout << "FAIL alla riga " << r << " -> Atteso: " << expected
+                  << ", Trovato: " << val_first << std::endl;
+        errors++;
+      }
     }
 
-    if (pass)
-      std::cout << "RESULT: OK" << std::endl;
+    if (errors == 0)
+      std::cout << "RESULT: OK " << std::endl;
     else
-      std::cout << "RESULT: FAIL" << std::endl;
+      std::cout << "RESULT: FAIL (found " << errors << " error)" << std::endl;
   }
 
   MPI_Finalize();

@@ -1,8 +1,8 @@
 solver = naive
 precision = float
-min = 256
-max = 4096
-step = 256
-reps = 20
-warmup = 5
+min = 32
+max = 8192
+step = 128
+reps = 5
+warmup = 3
 seed = 123
