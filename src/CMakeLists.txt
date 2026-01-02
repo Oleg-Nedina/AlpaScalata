@@ -10,14 +10,31 @@ set(PROJ_INC_DIRS
 if(ENABLE_CUDA)
   add_library(gemm_backend_cuda STATIC
           backends/cuda/gemm_cuda_naive.cu
-   # backends/cuda/gemm_cuda_full_options.cu
-    #backends/cuda/gemm_cuda_mpi.cu
+          backends/cuda/gemm_cuda_full_options.cu
   )
   target_include_directories(gemm_backend_cuda PUBLIC ${PROJ_INC_DIRS})
   target_link_libraries(gemm_backend_cuda PUBLIC CUDA::cudart)
+
   target_compile_options(gemm_backend_cuda PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --extended-lambda>
   )
+
+  #add_executable(benchmark_cuda backends/cuda/benchmark_test.cu)
+  #target_link_libraries(benchmark_cuda PRIVATE gemm_backend_cuda CUDA::cudart)
+  #target_include_directories(benchmark_cuda PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+  find_package(MPI REQUIRED)
+
+  add_executable(gemm_cuda_mpi backends/cuda/gemm_cuda_mpi.cu)
+
+  target_link_libraries(gemm_cuda_mpi
+    PRIVATE
+      gemm_backend_cuda
+      MPI::MPI_CXX
+      CUDA::cudart
+  )
+  target_include_directories(gemm_cuda_mpi PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 endif()
 if(ENABLE_ALPAKA)
   set_source_files_properties(
@@ -40,20 +57,15 @@ if(ENABLE_ALPAKA)
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --extended-lambda>
   )
 
-  # --- CONFIGURAZIONE MPI ---
   find_package(MPI REQUIRED)
 
-  # 1. IMPORTANTE: Diciamo a CMake che questo file contiene codice CUDA (Alpaka)
-  #    altrimenti usa g++ e fallisce sugli header __device__
   set_source_files_properties(
                backends/alpaka/gemm_mpi.cpp
                    PROPERTIES LANGUAGE CUDA
                      )
 
-  # 2. Definiamo l'eseguibile
   add_executable(benchmark_mpi backends/alpaka/gemm_mpi.cpp)
 
-  # 3. Linkiamo le librerie
   target_link_libraries(benchmark_mpi
                                  PRIVATE
                                        MPI::MPI_CXX

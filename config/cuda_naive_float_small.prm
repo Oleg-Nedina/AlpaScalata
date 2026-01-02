@@ -1,8 +1,8 @@
-solver = naive
+solver = full_options
 precision = float
 min = 32
 max = 8192
 step = 128
 reps = 5
-warmup = 3
+warmup = 2
 seed = 123

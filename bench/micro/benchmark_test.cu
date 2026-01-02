@@ -1,6 +1,6 @@
 
 // bench/micro/benchmark_test.cu
-#include "gemm/gemm.hpp"  // gemm::gemm_cuda_naive + GemmShape
+#include "gemm/gemm.hpp" // gemm::gemm_cuda_naive + GemmShape
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -15,14 +15,11 @@
 #include <sstream>
 #include <unordered_map>
 
-
-
 static std::string lower(std::string s) {
   std::transform(s.begin(), s.end(), s.begin(),
                  [](unsigned char c) { return std::tolower(c); });
   return s;
 }
-
 
 static std::unordered_map<std::string, std::string>
 parse_prm(const std::string &path) {
@@ -50,7 +47,6 @@ parse_prm(const std::string &path) {
   }
   return m;
 }
-
 
 static void ck(cudaError_t e, const char *msg) {
   if (e != cudaSuccess) {
@@ -205,9 +201,8 @@ static float bench_naive_once_ms(int N, const RunCfg &cfg) {
   return total_ms / cfg.reps;
 }
 
-static int tb_naive_float(const RunCfg &cfg,
-                          const std::string& solver,
-                          const std::string& prec) {
+static int tb_naive_float(const RunCfg &cfg, const std::string &solver,
+                          const std::string &prec) {
   std::printf("Solver,Precision,Size,Time_ms,GFLOPs\n");
   for (int N = cfg.minN; N <= cfg.maxN; N += cfg.step) {
     float t_ms = bench_naive_once_ms(N, cfg);
@@ -216,8 +211,8 @@ static int tb_naive_float(const RunCfg &cfg,
     double flops = 2.0 * (double)N * (double)N * (double)N * (double)cfg.batch;
     double gflops = flops / (t_ms * 1e-3) / 1e9;
 
-    std::printf("%s,%s,%d,%.6f,%.6f\n", solver.c_str(), prec.c_str(), N, t_ms,
-                gflops);
+    std::printf("cuda_%s,%s,%d,%.6f,%.6f\n", solver.c_str(), prec.c_str(), N,
+                t_ms, gflops);
 
     std::fflush(stdout);
   }
@@ -225,80 +220,79 @@ static int tb_naive_float(const RunCfg &cfg,
 }
 
 static float bench_full_options_once_ms(int N, const RunCfg &cfg) {
-    // GEMM NxN: A[N,N], B[N,N], C[N,N]
-    const size_t bytesA = (size_t) N * N * sizeof(float);
-    const size_t bytesB = (size_t) N * N * sizeof(float);
-    const size_t bytesC = (size_t) N * N * sizeof(float);
+  // GEMM NxN: A[N,N], B[N,N], C[N,N]
+  const size_t bytesA = (size_t)N * N * sizeof(float);
+  const size_t bytesB = (size_t)N * N * sizeof(float);
+  const size_t bytesC = (size_t)N * N * sizeof(float);
 
-    // Host init
-    std::vector<float> A((size_t) N * N), B((size_t) N * N);
+  // Host init
+  std::vector<float> A((size_t)N * N), B((size_t)N * N);
 
-    std::mt19937 rng(cfg.seed);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    for (auto &x: A)
-        x = dist(rng);
-    for (auto &x: B)
-        x = dist(rng);
+  std::mt19937 rng(cfg.seed);
+  std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+  for (auto &x : A)
+    x = dist(rng);
+  for (auto &x : B)
+    x = dist(rng);
 
-    // Device alloc
-    float *Ad = nullptr, *Bd = nullptr, *Cd = nullptr;
-    ck(cudaMalloc(&Ad, bytesA), "cudaMalloc A");
-    ck(cudaMalloc(&Bd, bytesB), "cudaMalloc B");
-    ck(cudaMalloc(&Cd, bytesC), "cudaMalloc C");
+  // Device alloc
+  float *Ad = nullptr, *Bd = nullptr, *Cd = nullptr;
+  ck(cudaMalloc(&Ad, bytesA), "cudaMalloc A");
+  ck(cudaMalloc(&Bd, bytesB), "cudaMalloc B");
+  ck(cudaMalloc(&Cd, bytesC), "cudaMalloc C");
 
-    ck(cudaMemcpy(Ad, A.data(), bytesA, cudaMemcpyHostToDevice), "H2D A");
-    ck(cudaMemcpy(Bd, B.data(), bytesB, cudaMemcpyHostToDevice), "H2D B");
+  ck(cudaMemcpy(Ad, A.data(), bytesA, cudaMemcpyHostToDevice), "H2D A");
+  ck(cudaMemcpy(Bd, B.data(), bytesB, cudaMemcpyHostToDevice), "H2D B");
 
-    // Warmup
-    gemm::GemmShape s{N, N, N};
-    for (int i = 0; i < cfg.warmup; i++) {
-        gemm::gemm_cuda_full_options(Ad, Bd, Cd, s);
-    }
-    ck(cudaDeviceSynchronize(), "sync after warmup");
+  // Warmup
+  gemm::GemmShape s{N, N, N};
+  for (int i = 0; i < cfg.warmup; i++) {
+    gemm::gemm_cuda_full_options(Ad, Bd, Cd, s);
+  }
+  ck(cudaDeviceSynchronize(), "sync after warmup");
 
-    // Timing
-    cudaEvent_t start, stop;
-    ck(cudaEventCreate(&start), "event create start");
-    ck(cudaEventCreate(&stop), "event create stop");
+  // Timing
+  cudaEvent_t start, stop;
+  ck(cudaEventCreate(&start), "event create start");
+  ck(cudaEventCreate(&stop), "event create stop");
 
-    ck(cudaEventRecord(start), "event record start");
-    for (int i = 0; i < cfg.reps; i++) {
-        gemm::gemm_cuda_naive(Ad, Bd, Cd, s);
-    }
-    ck(cudaEventRecord(stop), "event record stop");
-    ck(cudaEventSynchronize(stop), "event sync stop");
+  ck(cudaEventRecord(start), "event record start");
+  for (int i = 0; i < cfg.reps; i++) {
+    gemm::gemm_cuda_full_options(Ad, Bd, Cd, s);
+  }
+  ck(cudaEventRecord(stop), "event record stop");
+  ck(cudaEventSynchronize(stop), "event sync stop");
 
-    float total_ms = 0.0f;
-    ck(cudaEventElapsedTime(&total_ms, start, stop), "elapsed time");
+  float total_ms = 0.0f;
+  ck(cudaEventElapsedTime(&total_ms, start, stop), "elapsed time");
 
-    ck(cudaEventDestroy(start), "destroy start");
-    ck(cudaEventDestroy(stop), "destroy stop");
+  ck(cudaEventDestroy(start), "destroy start");
+  ck(cudaEventDestroy(stop), "destroy stop");
 
-    // Cleanup
-    cudaFree(Ad);
-    cudaFree(Bd);
-    cudaFree(Cd);
+  // Cleanup
+  cudaFree(Ad);
+  cudaFree(Bd);
+  cudaFree(Cd);
 
-    return total_ms / cfg.reps;
+  return total_ms / cfg.reps;
 }
 
-static int tb_full_options_float(const RunCfg &cfg,
-                          const std::string& solver,
-                          const std::string& prec) {
-    std::printf("Solver,Precision,Size,Time_ms,GFLOPs\n");
-    for (int N = cfg.minN; N <= cfg.maxN; N += cfg.step) {
-        float t_ms = bench_full_options_once_ms(N, cfg);
+static int tb_full_options_float(const RunCfg &cfg, const std::string &solver,
+                                 const std::string &prec) {
+  std::printf("Solver,Precision,Size,Time_ms,GFLOPs\n");
+  for (int N = cfg.minN; N <= cfg.maxN; N += cfg.step) {
+    float t_ms = bench_full_options_once_ms(N, cfg);
 
-        // FLOPs = 2*N^3 per GEMM (batch=1 qui; se vuoi batch, moltiplica)
-        double flops = 2.0 * (double)N * (double)N * (double)N * (double)cfg.batch;
-        double gflops = flops / (t_ms * 1e-3) / 1e9;
+    // FLOPs = 2*N^3 per GEMM (batch=1 qui; se vuoi batch, moltiplica)
+    double flops = 2.0 * (double)N * (double)N * (double)N * (double)cfg.batch;
+    double gflops = flops / (t_ms * 1e-3) / 1e9;
 
-        std::printf("%s,%s,%d,%.6f,%.6f\n", solver.c_str(), prec.c_str(), N, t_ms,
-                    gflops);
+    std::printf("cuda_%s,%s,%d,%.6f,%.6f\n", solver.c_str(), prec.c_str(), N,
+                t_ms, gflops);
 
-        std::fflush(stdout);
-    }
-    return 0;
+    std::fflush(stdout);
+  }
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -380,11 +374,9 @@ int main(int argc, char **argv) {
   // dispatcher
   if (solver == "naive" && prec == "float") {
     return tb_naive_float(cfg, solver, prec);
+  } else if (solver == "full_options" && prec == "float") {
+    return tb_full_options_float(cfg, solver, prec);
   }
-  else if(solver == "full_options" && prec == "float") {
-      return tb_full_options_float(cfg, solver, prec);
-  }
-}
 
   std::fprintf(stderr,
                "ERROR: unsupported solver/precision from config: %s %s\n"
@@ -392,4 +384,3 @@ int main(int argc, char **argv) {
                solver.c_str(), prec.c_str());
   return 2;
 }
-
