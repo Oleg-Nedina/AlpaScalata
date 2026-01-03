@@ -140,19 +140,19 @@ __global__ void gemm_full_options_kernel(const float *__restrict__ A,
     __syncthreads();
   }
 
-  // STORE PHASE (CORRETTA)
+  // STORE PHASE
 #pragma unroll
   for (int i = 0; i < TM; ++i) {
     int globalRow = rowStart + ty * TM + i;
 
-    // FIX: Se la riga è fuori dalla matrice, saltiamo tutto immediatamente!
+    // If the row is out of matrix bounds, skip
     if (globalRow >= M)
       continue;
 
     for (int j = 0; j < TN; j += 4) {
       int globalCol = colStart + tx * TN + j;
 
-      // Check per scrittura vettorizzata (float4)
+      // Check for vectorized writing (float4)
       if (globalCol + 3 < N) {
         float4 vecC;
         vecC.x = acc[i][j + 0];
@@ -172,7 +172,7 @@ __global__ void gemm_full_options_kernel(const float *__restrict__ A,
 
         *reinterpret_cast<float4 *>(&C[idx]) = vecC;
       } else {
-        // Fallback scalare sicuro
+        // Scalar fallback
         for (int k = 0; k < 4; ++k) {
           if (globalCol + k < N) {
             float val = acc[i][j + k];

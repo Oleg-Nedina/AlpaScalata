@@ -305,11 +305,11 @@ At the beginning of Alpaka work:
 
 ### 7.2 Goals Achieved (Milestones Completed)
 
-* ✅ Alpaka integrated into the main project structure
-* ✅ Legacy scaffolding identified as removable noise
-* ✅ Single coherent build philosophy established (project-wide)
-* ✅ Benchmark logic kept backend-agnostic and config-driven
-* ✅ Cluster execution validated (GPU nodes + CUDA toolchain + PBS)
+*  Alpaka integrated into the main project structure
+*  Legacy scaffolding identified as removable noise
+*  Single coherent build philosophy established (project-wide)
+*  Benchmark logic kept backend-agnostic and config-driven
+*  Cluster execution validated (GPU nodes + CUDA toolchain + PBS)
 
 ### 7.3 Backend layout after integration
 
@@ -363,7 +363,7 @@ This strategy enables:
 
 ## 9. What We Have Right Now (Current Capabilities)
 
-### ✅ Working
+###  Working
 
 * CUDA toolchain via Spack on cluster (`spack load cuda`)
 * CUDA naive compilation and execution on GPU nodes
@@ -376,7 +376,7 @@ This strategy enables:
   * optional correctness checks
 * Plotting pipeline producing **PDF** plots with consistent folder structure
 
-### ⚠️ “In progress / Next”
+### “In progress / Next”
 
 * additional CUDA solvers (tiled/shared memory, etc.)
 * Alpaka solvers and integration into the same benchmark harness

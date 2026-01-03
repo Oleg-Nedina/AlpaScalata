@@ -13,43 +13,40 @@ def read_one_csv(path: str) -> pd.DataFrame | None:
             print(f"Warning: {path} seems malformed. Trying to skip bad lines...")
             d = pd.read_csv(path, on_bad_lines="skip")
 
-        # pulizia nomi colonne
+        # clean column names
         d.columns = [c.strip() for c in d.columns]
 
         if "Solver" not in d.columns:
-            print(f"⚠️  Skipping {path}: header mancante o file sporco.")
+            print(f"  Skipping {path}: header mancante o file sporco.")
             return None
 
-        # tieni solo colonne che ti servono (se esistono)
+        # keep only needed columns
         missing = [c for c in REQUIRED_COLS if c not in d.columns]
         if missing:
-            print(f"⚠️  Skipping {path}: colonne mancanti {missing}")
+            print(f"  Skipping {path}: colonne mancanti {missing}")
             return None
 
         d = d[REQUIRED_COLS].copy()
 
-        # normalizza valori stringa (questo è il fix per tiling_complete/full che “spariscono”)
+        # normalize string values
         d["Solver"] = d["Solver"].astype(str).str.strip()
         d["Precision"] = d["Precision"].astype(str).str.strip()
 
-        # se vuoi rendere tutto consistente:
         d["Solver"] = d["Solver"].str.lower()
         d["Precision"] = d["Precision"].str.lower()
 
-        # forza numerico
         d["Size"] = pd.to_numeric(d["Size"], errors="coerce")
         d["Time_ms"] = pd.to_numeric(d["Time_ms"], errors="coerce")
         d["GFLOPs"] = pd.to_numeric(d["GFLOPs"], errors="coerce")
 
-        # droppa righe invalide
         before = len(d)
         d = d.dropna(subset=["Size", "Time_ms", "GFLOPs"])
         d = d[d["Size"] > 0]
         if len(d) == 0:
-            print(f"⚠️  Skipping {path}: nessuna riga valida dopo pulizia.")
+            print(f"  Skipping {path}: no valid row after cleaning.")
             return None
         if len(d) < before:
-            print(f"ℹ️  {path}: droppate {before - len(d)} righe invalide.")
+            print(f"  {path}: dropped {before - len(d)} invalid rows.")
 
         return d
 
@@ -70,7 +67,7 @@ def main():
             dfs.append(d)
 
     if not dfs:
-        print("❌ Nessun dato valido trovato. Controlla i tuoi file CSV.")
+        print("No valid data found. Check CSV files.")
         sys.exit(1)
 
     df = pd.concat(dfs, ignore_index=True)
@@ -79,9 +76,9 @@ def main():
     base_dir = "plots"
 
     # ---------------------------------------------------------
-    # 1) GRAFICI INDIVIDUALI: 3 grafici per (Solver, Precision)
+    # 1) INDIVIDUAL GRAPHS: 3 graphs for (Solver, Precision)
     # ---------------------------------------------------------
-    print(f"Generazione grafici individuali in '{base_dir}/Individual/...'")
+    print(f"Generation individual graphs in '{base_dir}/Individual/...'")
 
     for (solver, prec), g in df.groupby(["Solver", "Precision"], dropna=False):
         g = g.sort_values("Size")
@@ -135,19 +132,19 @@ def main():
         plt.savefig(os.path.join(out_dir, "gflops.pdf"))
         plt.close()
 
-        print(f"  ✅ {solver}/{prec}: dual_axis.pdf, time.pdf, gflops.pdf")
+        print(f"  {solver}/{prec}: dual_axis.pdf, time.pdf, gflops.pdf")
 
     # ---------------------------------------------------------
-    # 2) GRAFICI COMPARATIVI
+    # 2) COMPARATIVE GRAPHS
     # ---------------------------------------------------------
-    print(f"Generazione grafici comparativi in '{base_dir}/Comparison/...'")
+    print(f"Generation comparative graphs in '{base_dir}/Comparison/...'")
     comp_dir = os.path.join(base_dir, "Comparison")
     os.makedirs(comp_dir, exist_ok=True)
 
     for prec, g_prec in df.groupby("Precision"):
         g_prec = g_prec.sort_values("Size")
 
-        # Confronto GFLOPs
+        # GFLOPs comparison
         plt.figure(figsize=(10, 6))
         for solver, g_sol in g_prec.groupby("Solver"):
             g_sol = g_sol.sort_values("Size")
@@ -162,7 +159,7 @@ def main():
         plt.savefig(os.path.join(comp_dir, f"compare_gflops_{prec}.pdf"))
         plt.close()
 
-        # Confronto Time
+        # Time comparison
         plt.figure(figsize=(10, 6))
         for solver, g_sol in g_prec.groupby("Solver"):
             g_sol = g_sol.sort_values("Size")
@@ -177,13 +174,12 @@ def main():
         plt.savefig(os.path.join(comp_dir, f"compare_time_{prec}.pdf"))
         plt.close()
 
-        print(f"  ✅ Comparison/{prec}: compare_gflops_{prec}.pdf, compare_time_{prec}.pdf")
+        print(f"  Comparison/{prec}: compare_gflops_{prec}.pdf, compare_time_{prec}.pdf")
 
-    # debug utile: vedere esattamente che gruppi hai
-    print("\n--- DEBUG gruppi trovati ---")
+    print("\n--- DEBUG found groups ---")
     print(df.groupby(["Solver", "Precision"]).size().sort_values(ascending=False).to_string())
 
-    print("\n✅ Fatto!")
+    print("\nDone!")
 
 if __name__ == "__main__":
     main()

@@ -95,7 +95,7 @@ static void check_solver_vs_naive(int N, const RunCfg &cfg,
   const size_t bytesB = elems * sizeof(float);
   const size_t bytesC = elems * sizeof(float);
 
-  // Host init (stesso seed => deterministico)
+  // Host init (same seed => deterministic)
   std::vector<float> A(elems), B(elems);
   std::mt19937 rng(cfg.seed);
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
@@ -207,7 +207,7 @@ static int tb_naive_float(const RunCfg &cfg, const std::string &solver,
   for (int N = cfg.minN; N <= cfg.maxN; N += cfg.step) {
     float t_ms = bench_naive_once_ms(N, cfg);
 
-    // FLOPs = 2*N^3 per GEMM (batch=1 qui; se vuoi batch, moltiplica)
+    // FLOPs = 2*N^3 for GEMM (batch=1)
     double flops = 2.0 * (double)N * (double)N * (double)N * (double)cfg.batch;
     double gflops = flops / (t_ms * 1e-3) / 1e9;
 
@@ -283,7 +283,7 @@ static int tb_full_options_float(const RunCfg &cfg, const std::string &solver,
   for (int N = cfg.minN; N <= cfg.maxN; N += cfg.step) {
     float t_ms = bench_full_options_once_ms(N, cfg);
 
-    // FLOPs = 2*N^3 per GEMM (batch=1 qui; se vuoi batch, moltiplica)
+    // FLOPs = 2*N^3 for GEMM (batch=1)
     double flops = 2.0 * (double)N * (double)N * (double)N * (double)cfg.batch;
     double gflops = flops / (t_ms * 1e-3) / 1e9;
 
@@ -332,7 +332,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // carica prm
+  // upload prm
   RunCfg cfg;
   auto prm = parse_prm(config_file);
 
@@ -357,7 +357,7 @@ int main(int argc, char **argv) {
   cfg.warmup = std::stoi(require_key("warmup"));
   cfg.seed = (unsigned)std::stoul(require_key("seed"));
 
-  // check correttezza (solver vs naive) se richiesto
+  // check soundness (solver vs naive) if specified
   if (checkN > 0) {
     auto fn = solver_from_name(solver);
     if (!fn) {

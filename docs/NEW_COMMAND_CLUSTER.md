@@ -1,23 +1,23 @@
-# 🧠 MEGA-RIASSUNTO — Git, Cluster, Rete, Trasferimento Dati (NO Python)
+# Fast Recap — Git, Cluster, Net, Data Transfer (NO Python)
 
-## Contesto
+## Context
 
-Progetto **AlpaScalata / Alpaka** su cluster PoliMi (login01 / gpu01).
-Sviluppo in **locale**, esecuzione e benchmark su **cluster**, analisi **in locale**.
+Project **AlpaScalata / Alpaka** over cluster PoliMi (login01 / gpu01).
+ **Local** development, execution and benchmark over **cluster**, **Local** analysis.
 
 ---
 
-## 1️⃣ Problema — Git ha smesso di funzionare sul cluster
+## Problem — Git stop to work on cluster
 
-### Sintomi
+### Symptoms
 
-* `git clone / pull / push` non funzionano
-* Errori di timeout su:
+* `git clone / pull / push` does not work
+* Timeout errors on:
 
-  * porta 22 (SSH)
-  * porta 443 (HTTPS)
+  * port 22 (SSH)
+  * port 443 (HTTPS)
 
-### Verifiche fatte
+### Checks
 
 ```bash
 getent hosts github.com     # DNS OK
@@ -26,27 +26,27 @@ nc -vz github.com 443       # timeout
 curl https://github.com     # timeout
 ```
 
-### Conclusione
+### Conclusion
 
-* Il cluster **non ha accesso a Internet**
-* Cambiamento di **policy di rete**
-* Non è un problema di Git o di chiavi
+* The cluster **does not have Internet access**
+* Change of **net policy**
+* Not a git or key problem
 
-### Decisione
+### Decision
 
-❌ Niente GitHub dal cluster
-✅ Git **solo in locale**
+No GitHub on cluster
+Git **local only**
 
 ---
 
-## 2️⃣ Problema — Come portare il codice sul cluster senza Git
+## Problem — How to get code on cluster without Git
 
-### Soluzione adottata
+### Adopted solution
 
-Usare **`rsync` dal PC locale verso il cluster**
-(il PC è l’unico nodo con accesso esterno).
+Using **`rsync` on local devide toward the cluster**
+(the device is the only node with external access).
 
-### Comando ESATTO (PC → cluster)
+### EXACT command (device → cluster)
 
 ```bash
 rsync -av --delete -e "ssh" \
@@ -56,68 +56,68 @@ rsync -av --delete -e "ssh" \
   u10905938@10.78.18.100:~/AlpaScalata/
 ```
 
-📌 Effetto:
+Effect:
 
-* il cluster viene **allineato** al locale
-* sovrascrittura completa
-* `.git` escluso
+* the cluster gets **aligned** with local
+* complet overwrite
+* `.git` excluded
 
 ---
 
-## 3️⃣ Problema — rsync / ssh non funzionano da gpu01
+## Problem — rsync / ssh does not work on gpu01
 
-### Sintomo
+### Symptom
 
 ```text
 Permission denied (publickey)
 ```
 
-### Diagnosi
+### Diagnosis
 
-* `gpu01` è un **compute node**
-* non ha (e non deve avere) le chiavi SSH
-* non è pensato per fare connessioni in uscita
+* `gpu01` is a **compute node**
+* it does not have (and does not have to) SSH keys
+* it isn't projected for connections toward the outside
 
-### Regola fondamentale
+### Fundamental rule
 
-❌ Mai fare rsync / ssh **da gpu01**
-✅ Tutti i trasferimenti passano dal **PC locale**
-
----
-
-## 4️⃣ Problema — `git status` non funziona sul cluster
-
-### Motivo
-
-* `.git` non viene copiato sul cluster (scelta voluta)
-* la directory sul cluster **non è un repository Git**
-
-### Soluzione
-
-Nessuna azione richiesta:
-
-* Git serve solo in locale
-* sul cluster servono solo i sorgenti per build/run
+Never do rsync / ssh **from gpu01**
+Every transfer pass through **local device**
 
 ---
 
-## 5️⃣ Problema — Come riportare i risultati in locale
+##  Problem — `git status` does not work over cluster
 
-### Errore iniziale
+### Reason
 
-Tentare di fare:
+* `.git` does not get compiled over cluster (intentional choice)
+* the cluster directory **is not a Git repository**
+
+### Solution
+
+No action required:
+
+* Git only needed in local
+* on the cluster only needed source codes for build/run
+
+---
+
+##  Problem — How to bring results back in local
+
+### Initial error
+
+Trying to do:
 
 ```text
 gpu01 → login → PC
 ```
 
-❌ Fallisce (chiavi / policy)
+Fails (keys / policy)
 
-### Soluzione corretta
+### Correct solution
 
-Scaricare i risultati **direttamente dal PC locale**
+Download results **directly from local device**
 
-### Comando ESATTO (PC ← cluster)
+### EXACT command (PC ← cluster)
 
 ```bash
 mkdir -p ~/UNI/AMSC/AlpaScalata/data/results
@@ -126,29 +126,29 @@ rsync -av -e "ssh" \
   ~/UNI/AMSC/AlpaScalata/data/results/
 ```
 
-📌 Questo comando:
+This command:
 
-* va eseguito **dal PC**
-* è l’unico modo corretto
-* non richiede nulla dal cluster
+* has to be executed **on the local device**
+* is the only correct procedure
+* does not require anything from the cluster-side
 
 ---
 
-## 6️⃣ WORKFLOW FINALE (definitivo)
+## FINAL WORKFLOW (definitive)
 
 ```text
-[PC] modifica codice
-[PC] git commit / push
-[PC] rsync → cluster
+[DEVICE] code modify
+[DEVICE] git commit / push
+[DEVICE] rsync → cluster
 [CLUSTER] build / run / benchmark
-[PC] rsync ← results
+[DEVICE] rsync ← results
 ```
 
 ---
 
-## 7️⃣ CHEAT-SHEET FINALE (solo comandi utili)
+## FINAL CHEAT-SHEET (useful commands only)
 
-### 🔼 PC → cluster (codice)
+### Device → cluster (code)
 
 ```bash
 rsync -av --delete -e "ssh" \
@@ -157,7 +157,7 @@ rsync -av --delete -e "ssh" \
   u10905938@10.78.18.100:~/AlpaScalata/
 ```
 
-### 🔽 PC ← cluster (risultati)
+### Device ← cluster (results)
 
 ```bash
 rsync -av -e "ssh" \

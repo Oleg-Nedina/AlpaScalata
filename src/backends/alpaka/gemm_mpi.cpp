@@ -243,8 +243,8 @@ int main(int argc, char **argv) {
         row_pass = false;
 
       if (!row_pass) {
-        std::cout << "FAIL alla riga " << r << " -> Atteso: " << expected
-                  << ", Trovato: " << val_first << std::endl;
+        std::cout << "FAIL at row " << r << " -> Expected: " << expected
+                  << ", Found: " << val_first << std::endl;
         errors++;
       }
     }

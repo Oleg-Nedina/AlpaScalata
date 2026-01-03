@@ -24,9 +24,6 @@ data/
 | :--- |:----------------------------------------------------------------|
 | **`naive_float.csv`** | Performance data for the non-optimized, direct implementation.  |
 | **`tiled_float.csv`** | Performance data for the cache-optimized, tiled implementation. |
-| **''** | ...                                                             |
-| **''** | ...                                                             |
-| **''** | ...                                                             |
 ---
 
 ## Data Schema (CSV Format)

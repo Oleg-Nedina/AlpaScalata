@@ -1,60 +1,60 @@
-### 1.(L'Architettura)
+### 1.(The Architecture)
 
- diviso il codice in **tre componenti logiche distinte**:
+Code divided in **three distinct logic components**:
 
-1. **L'Interfaccia (`gemm.hpp`)**:
-* È il "contratto" che tutti i file devono rispettare.
-* Contiene le definizioni delle strutture dati (`GemmShape`) e le firme delle funzioni (`gemm_alpaka_naive`, `gemm_cuda_naive`).
-* **Cruciale:** Usa `#ifdef GEMM_ENABLE_ALPAKA` per nascondere gli header pesanti di Alpaka ai file che non ne hanno bisogno (come i solver CUDA puri), evitando conflitti di compilazione.
-
-
-2. **Il Motore (`gemm_alpaka_naive.cpp`)**:
-* Contiene la **logica di calcolo** reale (il Kernel Alpaka).
-* È compilato separatamente.
-* Usa l'**Istanziazione Esplicita** (`template void ...`) alla fine del file. Questo dice al compilatore: *"Prepara già il codice binario per questo kernel con questi tipi (GPU), così chi lo chiama non deve ricompilarlo"*.
+1. **Interface (`gemm.hpp`)**:
+* The "contract" that each file must follow.
+* Contains the definitions of each data structure (`GemmShape`) and the signatures of the functions (`gemm_alpaka_naive`, `gemm_cuda_naive`).
+* **Crucial:** Use `#ifdef GEMM_ENABLE_ALPAKA` to hide heavy Alpaka header to files which do not need it (like the pure CUDA solvers), avoiding compilation conflicts.
 
 
-3. **Il Driver di Benchmark (`benchmark_alpaka.cu`)**:
-* Non contiene logica di calcolo, ma solo di **orchestrazione**.
-* Legge i file di configurazione (`.prm`).
-* Gestisce il ciclo di test (`min`, `max`, `step`).
-* Esegue il **Warmup** (giri a vuoto per scaldare la GPU).
-* Implementa il **Gold Check (`verify_correctness`)**: confronta il risultato della GPU con una versione CPU lenta ma sicura per garantire che i numeri siano giusti.
-* Produce output CSV standardizzato.
+2. **The engine (`gemm_alpaka_naive.cpp`)**:
+* Contains the real **computation logic** (Alpaka Kernel).
+* It is compiled by itself.
+* Uses **Explicit Instance** (`template void ...`) at the end of the file. This says to the compiler: *"Prepare the binary code for this kernel with these types (GPU), in order to avoid compilation to callers"*.
 
 
-
----
-
-### 2. Perché (Le Soluzioni ai Problemi)
-
-
-* **Il Problema "Allocator is not a template":**
-* *Causa:* NVCC (il compilatore NVIDIA) non riesce a leggere i nuovi header standard C++20 di GCC 13 (in particolare `<string>` e `<memory>`).
-* *Soluzione: forzato lo standard **C++17** e aggiunto il flag `-D_GLIBCXX_USE_CXX11_ABI=0`. Questo "calma" il compilatore e garantisce la compatibilità binaria.
-
-
-* **Il Problema "Namespace Pollution":**
-* *Causa:* Avevo incluso `<alpaka/alpaka.hpp>` *dentro* il `namespace gemm`. Questo faceva sì che il compilatore cercasse `std::vector` dentro `gemm::std::vector`, causando errori a cascata.
-* *Soluzione:*  spostato gli include **fuori** dai namespace e protetti da macro.
-
-
-* **Il Problema "Alpaka su CPU invece che GPU":**
-* *Causa:* CMake non passava correttamente la definizione al preprocessore, facendo scattare l'`#else` che attivava la CPU.
-* *Soluzione:* Abbiamo forzato `-DALPAKA_ACC_GPU_CUDA_ENABLED` direttamente nei flag di compilazione e rimosso il fallback CPU dal codice per essere sicuri che, se compila, usa la GPU.
+3. **The Benchmark Driver (`benchmark_alpaka.cu`)**:
+* Does not contain computation logic, **orchestration** only.
+* Reads each configuration file (`.prm`).
+* Manages test cycle (`min`, `max`, `step`).
+* Executes the **Warmup**.
+* Implements the **Gold Check (`verify_correctness`)**: compares the GPU result with a CPU version, slow but safe, to grant value soundness.
+* Produces standardised CSV output.
 
 
 
 ---
 
-### 3. Perché sarà facilissimo aggiungere nuovi Solver
+### 2. Why (Solutions to Problems)
 
-Grazie a questa struttura, per aggiungere un nuovo solver (es. `tiled` o `shared_memory`), non devi riscrivere il benchmark. Devi solo:
 
-1. **Copiare il file del solver:**
-Crea `gemm_alpaka_tiled.cpp` copiando quello `naive`. Cambia solo il codice dentro `operator()` (il kernel).
-2. **Registrarlo nell'header:**
-Aggiungi una riga in `gemm.hpp`:
+* **"Allocator is not a template":**
+* *Cause:* NVCC (NVIDIA compiler) cannot read new standard headers C++20 di GCC 13 (in particular `<string>` and `<memory>`).
+* *Solution: force standard **C++17** and added flag `-D_GLIBCXX_USE_CXX11_ABI=0`. This grants binary compatibility.
+
+
+* **"Namespace Pollution":**
+* *Caus:* Included `<alpaka/alpaka.hpp>` *inside* `namespace gemm`. This instructed teh compiler to search `std::vector` inside `gemm::std::vector`, causing errors.
+* *Solution:* Moved include **outside** namespace and protected with macro.
+
+
+* **"Alpaka over CPU instead of GPU":**
+* *Cause:* CMake does not correctly pass the definition to the preprocessor, causing the `#else` which activated the CPU.
+* *Solution:* Forced `-DALPAKA_ACC_GPU_CUDA_ENABLED` directly into the compilation flags, and removed the CPU fallback from the code to be sure that, if it compiles, it is using the GPU.
+
+
+
+---
+
+### 3. Why it is easy to add new Solver
+
+Thanks to this structure, to add a new solver (es. `tiled` or `shared_memory`), it is not needed to write the benchmark from scratch. It is only required to:
+
+1. **Copy the solver into the file:**
+Create `gemm_alpaka_tiled.cpp` copying the `naive` one. Only change the code inside `operator()` (kernel).
+2. **Register it into the header:**
+Add a row in `gemm.hpp`:
 ```cpp
 template <typename TQueue>
 void gemm_alpaka_tiled(TQueue &queue, ...);
@@ -62,17 +62,17 @@ void gemm_alpaka_tiled(TQueue &queue, ...);
 ```
 
 
-3. **Aggiornare il Benchmark:**
-Nel `main` di `benchmark_alpaka.cu`, aggiungi solo un `else if`:
+3. **Update the Benchmark:**
+In `main` of `benchmark_alpaka.cu`, add `else if`:
 ```cpp
 if (cfg.solver == "alpaka_naive") {
     gemm::gemm_alpaka_naive(...);
 } else if (cfg.solver == "alpaka_tiled") {
-    gemm::gemm_alpaka_tiled(...); // <--- Nuova chiamata
+    gemm::gemm_alpaka_tiled(...); // <--- New call
 }
 
 ```
 
 
-4. **Configurazione:**
-Crei un file `.prm` nuovo scrivendo `solver = alpaka_tiled` e lanci il benchmark. Tutto il resto (parsing, CSV, verifica errori, grafici) funzionerà automaticamente senza toccare nulla.
+4. **Configuration:**
+Create a new file `.prm` writing `solver = alpaka_tiled` and start the benchmark. Other stuff (parsing, CSV, error verify, graphs) will automatically work.

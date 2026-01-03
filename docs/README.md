@@ -1,4 +1,4 @@
-### 🔐 Appendix A – Cluster Access & CUDA Execution (Operational Recap)
+### Appendix A – Cluster Access & CUDA Execution (Operational Recap)
 
 This section summarizes **all commands required to access the cluster, request GPU resources, and run CUDA workloads**.
 It is meant to avoid command hunting and to serve as a **single operational reference**.
@@ -28,7 +28,7 @@ ssh u10905938@10.78.18.100
 
 You are now on the **login node** (`login01`).
 
-⚠️ **Do NOT run CUDA code or heavy compilation on the login node.**
+**Do NOT run CUDA code or heavy compilation on the login node.**
 
 ---
 
@@ -154,7 +154,7 @@ Job states:
 * `R` → running
 * `E` → exiting (finishing)
 
-⚠️ PBS does **not** preserve job history after completion.
+PBS does **not** preserve job history after completion.
 
 ---
 
@@ -199,12 +199,12 @@ qdel 5169
 
 ### A.12 Operational Rules (Summary)
 
-* ❌ Never run CUDA or heavy compilation on `login01`
-* ✅ Use interactive jobs for debugging
-* ✅ Use batch jobs for benchmarks
-* ✅ Always load CUDA via Spack
-* ✅ Always redirect benchmark output to CSV
-* ✅ Always log explicitly (PBS does not keep history)
+*  Never run CUDA or heavy compilation on `login01`
+*  Use interactive jobs for debugging
+*  Use batch jobs for benchmarks
+*  Always load CUDA via Spack
+*  Always redirect benchmark output to CSV
+*  Always log explicitly (PBS does not keep history)
 
 ---
 
@@ -407,7 +407,7 @@ cmake -S . -B build \
 cmake --build build -j
 ```
 
-⚠️ **Important**
+**Important**
 
 * CUDA runtime paths are embedded via **RPATH**
 * You do **not** need `LD_LIBRARY_PATH` at runtime
@@ -520,10 +520,10 @@ Plots are **derived artifacts** and usually not versioned.
 
 ## 14. Common Pitfalls
 
-* ❌ Running benchmark without redirect → data lost
-* ❌ Using large matrices with naive GEMM → very slow
-* ❌ Forgetting `--check` after changes
-* ❌ Using `LD_LIBRARY_PATH` instead of RPATH
+*  Running benchmark without redirect → data lost
+*  Using large matrices with naive GEMM → very slow
+*  Forgetting `--check` after changes
+*  Using `LD_LIBRARY_PATH` instead of RPATH
 
 ---
 
