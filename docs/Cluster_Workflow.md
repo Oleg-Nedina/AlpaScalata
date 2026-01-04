@@ -134,6 +134,7 @@ mpirun --oversubscribe -n 2 ./build/src/benchmark_mpi 16385 16385 16385
 ```
 
 *Check that the output is `RESULT: OK`.*
+*For cuda use * gemm_cuda_mpi *instead of benchmark_mpi.*
 
 ---
 
