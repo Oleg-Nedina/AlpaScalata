@@ -20,7 +20,7 @@ optimized kernels, config-driven benchmarking, and automated plotting.
 | **`docs/Architecture.md`**     | **Code Structure**. Explains the separation between Interface (gemm.hpp), Engine (Kernels), and Benchmark Driver.                         |
 | **`docs/Cluster_Workflow.md`** | **Build & Run Guide**. Detailed instructions for setting up Spack, compiling with CMake/OpenMP, and running MPI jobs on the cluster.      |
 | **`docs/Sync_Workflow.md`**    | **Offline Workflow**. How to sync code and results between your local machine and the cluster (which has no internet access) using rsync. |
-
+| **`AlpaScalata_repo.pdf`**     | **Complete Report**. This pdf is the whole report of the project, with implementation details and data analysis.                          |
 ---
 
 ## Key Featured
