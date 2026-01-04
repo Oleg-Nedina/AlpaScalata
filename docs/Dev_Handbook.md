@@ -288,8 +288,6 @@ Solution adopted:
 
 ## 7. Alpaka Integration (Worklog: consolidated and refined)
 
-> This section incorporates and refines the “yesterday” Alpaka worklog you provided.
-
 ### 7.1 Initial Situation
 
 At the beginning of Alpaka work:
@@ -375,47 +373,9 @@ This strategy enables:
   * CSV output
   * optional correctness checks
 * Plotting pipeline producing **PDF** plots with consistent folder structure
-
-### “In progress / Next”
-
-* additional CUDA solvers (tiled/shared memory, etc.)
-* Alpaka solvers and integration into the same benchmark harness
-* CPU baseline / quick CPU optimizations
-* full comparative benchmark sweeps across solvers/backends
-
 ---
 
-## 10. Next Steps (Short, High-Impact)
-
-1. **CUDA optimized solvers (2–3 total)**
-   Suggested minimal set:
-
-   * shared-memory tiled GEMM
-   * a variant with dynamic tiling or scheduling (or vectorized loads)
-
-2. **Alpaka parity with CUDA**
-
-   * Alpaka naive
-   * at least one Alpaka “tiled-like” strategy
-
-3. **Repository cleanup**
-
-   * remove placeholders and empty files not needed
-   * ensure all READMEs are consistent and useful
-
-4. **Systematic comparisons**
-
-   * same configs, same metrics, consistent plots
-   * answer: “Is mid-level CUDA optimization enough to saturate the GPU?”
-
-5. **Fast CPU baseline**
-
-   * naive + cache-blocking baseline
-   * contextualize when GPU acceleration wins
-
----
-
-## 11. Commands Cheat Sheet (Minimal)
+## 10. Commands Cheat Sheet (Minimal)
 
 ### Cluster access
 
@@ -465,7 +425,6 @@ tail -f /home/u10905938/<job>_<JOBID>.log
 
 ---
 
-## 12. One-line Takeaway
+## 11. One-line Takeaway
 
 > The project has been transformed from ad-hoc experiments into a **reproducible, cluster-ready GEMM benchmarking framework**, with a working CUDA baseline and a stable pipeline ready for meaningful optimization and Alpaka comparisons.
-```

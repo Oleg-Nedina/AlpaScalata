@@ -121,7 +121,7 @@ mpirun --oversubscribe -n 2 ./build/src/benchmark_mpi 16384 16384 16384
 2. **Padding Test / Robustness (odd dimensions):**
 
 ```bash
-mpirun --oversubscribe -np 2 ./build/src/benchmark_mpi 16385 16385 16385
+mpirun --oversubscribe -n 2 ./build/src/benchmark_mpi 16385 16385 16385
 
 ```
 
@@ -129,7 +129,7 @@ mpirun --oversubscribe -np 2 ./build/src/benchmark_mpi 16385 16385 16385
 
 ---
 
-## Salvataggio Dati Micro-Benchmarks
+## Saving Micro-Benchmarks Data
 
 Execute the local completed tests by saving the output CSV.
 
