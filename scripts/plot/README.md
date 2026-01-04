@@ -10,11 +10,13 @@ This directory contains Python scripts to analyze benchmark results.
 
 ## Output Structure
 
+```text
 plots/
-└── naive/
+├── naive/
 └── float/
-├── time.pdf
-└── gflops.pdf
+    ├── time.pdf
+    └── gflops.pdf
+```
 
 
 ## Usage

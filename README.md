@@ -24,7 +24,7 @@ The repository is designed to be **reproducible, extensible, and cluster-friendl
 
 ## Repository Structure
 
-.
+```text
 ├── CMakeLists.txt        # Top-level build orchestration
 ├── include/              # Public GEMM interfaces
 │   └── gemm/
@@ -35,7 +35,6 @@ The repository is designed to be **reproducible, extensible, and cluster-friendl
 │   └── common/
 ├── bench/
 │   └── micro/            # Benchmark executables
-├── tests/                # Correctness tests (small, deterministic)
 ├── config/               # .prm experiment definitions
 ├── data/
 │   └── results/          # Raw CSV benchmark output
@@ -45,7 +44,7 @@ The repository is designed to be **reproducible, extensible, and cluster-friendl
 ├── external/
 │   └── alpaka/           # Alpaka (git submodule)
 └── docs/                 # Design notes and reports
-
+```
 
 
 
