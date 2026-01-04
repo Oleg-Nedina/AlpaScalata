@@ -65,24 +65,5 @@ Each subdirectory contains its own README with more details.
 
     ---
 
-    ## Quick Start (Local or GPU Node)
 
-    ```bash
-    # Load CUDA (cluster)
-    source /software/spack-v1.0/share/spack/setup-env.sh
-    spack load cuda
-
-    # Compile benchmark
-    nvcc -O3 -std=c++17 -Iinclude -arch=sm_89 \
-      bench/micro/benchmark_test.cu \
-      src/backends/cuda/gemm_cuda_naive.cu \
-      -o benchmark_test
-
-    # Run benchmark
-    ./benchmark_test --config configs/parameters.prm --check 256 \
-      > data/results/naive_float.csv
-
-    # Plot results
-    python3 scripts/plot/plot_results.py data/results/naive_float.csv
-
-
+## **Every Useful Command can be Found in Docs**
