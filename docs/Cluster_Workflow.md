@@ -138,7 +138,7 @@ mpirun --oversubscribe -n 2 ./build/src/benchmark_mpi 16385 16385 16385
 ---
 ### Note*
 
-For cuda use gemm_cuda_mpi *instead of benchmark_mpi.
+For cuda use gemm_cuda_mpi instead of benchmark_mpi.
 
 ---
 
