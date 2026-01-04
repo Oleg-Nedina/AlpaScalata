@@ -79,6 +79,12 @@ cmake --build build -j
 
 ```
 
+### Note:
+```bash
+Please ignore any warnings generated during the make process. These are due to compiling with an older version of C++ to ensure compatibility with Alpaka.
+```
+
+
 ---
 
 ## Soundness Check (Micro-Benchmarks)
