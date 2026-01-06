@@ -8,10 +8,26 @@
 #include <stdexcept>
 #include <vector>
 
-// Helper to align dimensions to multiples of 4 (for float4 vectorization)
+/**
+ * @brief Aligns a dimension size to the nearest multiple of 4.
+ *
+ * Ensures that matrix dimensions are compatible with vectorized
+ * float4 memory load/store operations used in the CUDA kernels.
+ *
+ * @param n The dimension size to align.
+ * @return The aligned dimension size (n rounded up to the next multiple of 4).
+ */
 int get_padded_dim(int n) { return (n + 3) / 4 * 4; }
 
-// Select the specific GPU based on the MPI Rank
+/**
+ * @brief Selects and binds a specific GPU device to the current MPI rank.
+ *
+ * This function handles multi-GPU nodes by assigning devices in a round-robin
+ * fashion based on the MPI rank. If `deviceCount` is less than the number of
+ * ranks on the node, multiple ranks will share a GPU (oversubscription).
+ *
+ * @param rank The global MPI rank of the calling process.
+ */
 static void select_gpu_device(int rank) {
     int deviceCount;
     cudaGetDeviceCount(&deviceCount);
@@ -21,6 +37,19 @@ static void select_gpu_device(int rank) {
     }
 }
 
+/**
+ * @brief Main entry point for the Distributed MPI + CUDA GEMM application.
+ *
+ * This program performs a distributed matrix multiplication (C = A * B) across
+ * multiple GPU nodes. It uses a 1D row-wise decomposition strategy:
+ * 1. Matrix A is partitioned by rows and scattered to all ranks.
+ * 2. Matrix B is broadcast (replicated) to all ranks.
+ * 3. Each rank computes a partial resulting block of C using CUDA.
+ * 4. Results are gathered back to the master rank.
+ *
+ * The implementation handles data padding to ensure alignment for vectorization
+ * and even distribution among MPI ranks.
+ */
 int main(int argc, char **argv) {
     // Initialize MPI
     MPI_Init(&argc, &argv);
@@ -62,6 +91,7 @@ int main(int argc, char **argv) {
     int K_pad = get_padded_dim(K_real);
 
     // Second, ensure M is perfectly divisible by the number of ranks
+    // This simplifies the scatter/gather logic by ensuring every rank processes exactly the same number of rows.
     if (M_pad % size != 0) {
         int rem = M_pad % size;
         M_pad += (size - rem);
@@ -70,8 +100,8 @@ int main(int argc, char **argv) {
     int M_local_pad = M_pad / size; // Rows per rank
 
     // Memory Allocation
-    // Using cudaMallocHost (Pinned Memory) for faster PCI-E transfers
-
+    // Using cudaMallocHost (Pinned Memory) for faster PCI-E transfers.
+    // Pinned memory is required for optimal bandwidth and is mandatory if using asynchronous copies (cudaMemcpyAsync) overlapping with compute.
     float *h_A_full = nullptr;
     float *h_B = nullptr;
     float *h_C_full = nullptr;
@@ -102,20 +132,21 @@ int main(int argc, char **argv) {
         cudaMallocHost((void**)&h_C_full, size_C_full * sizeof(float));
 
         // Initialization (Master Only)
-        // A row-major = r%100, B = 1.0
-        #pragma omp parallel for
+        // Initialize A with a pattern dependent on the row index (row % 100)
+        // Initialize B with 1.0 everywhere.
+#pragma omp parallel for
         for (int r = 0; r < M_real; ++r) {
             float val = (float)(r % 100);
             for (int c = 0; c < K_real; ++c) {
                 h_A_full[r * K_pad + c] = val;
             }
         }
-        // Zero out padding rows in A if any
+        // Zero out padding rows in A if any (crucial to avoid NaN/Inf affecting results)
         for (int r = M_real; r < M_pad; ++r) {
             for (int c = 0; c < K_pad; ++c) h_A_full[r * K_pad + c] = 0.0f;
         }
 
-        #pragma omp parallel for
+#pragma omp parallel for
         for (int r = 0; r < K_real; ++r) {
             for (int c = 0; c < N_real; ++c) {
                 h_B[r * N_pad + c] = 1.0f;
@@ -124,12 +155,12 @@ int main(int argc, char **argv) {
     }
 
     // Distribute data
-    // Broadcast B
+    // Broadcast B: The entire B matrix is needed by every rank.
     if (size_B_pad < 2000000000) {
         MPI_Bcast(h_B, size_B_pad, MPI_FLOAT, 0, MPI_COMM_WORLD);
     } else {
         if (rank == 0) std::cout << "Warning: B too big, local generation." << std::endl;
-        // Local generation if broadcast is skipped
+        // Fallback: Local generation if B is too large for a single MPI message or to save bandwidth.
         for (int r = 0; r < K_real; ++r)
             for (int c = 0; c < N_real; ++c)
                 h_B[r * N_pad + c] = 1.0f;
@@ -137,8 +168,8 @@ int main(int argc, char **argv) {
 
     if (rank == 0) std::cout << "Partitioning A..." << std::endl;
 
-    // Scatter A
-    // Since M_pad is divisible by size, using MPI_Scatter
+    // Scatter A: Distribute chunks of rows from A_full to A_local on each rank.
+    // Since M_pad is aligned to size, using a uniform MPI_Scatter.
     MPI_Scatter(h_A_full, M_local_pad * K_pad, MPI_FLOAT,
                 h_A_local, M_local_pad * K_pad, MPI_FLOAT,
                 0, MPI_COMM_WORLD);
@@ -149,6 +180,8 @@ int main(int argc, char **argv) {
     if (rank == 0) std::cout << ">>> START GPU (CUDA) <<<" << std::endl;
 
     // Execute kernel
+    // gemm_cuda_full_options handles memory transfer to GPU and kernel execution.
+    // Each rank computes a sub-matrix of size (M_local_pad x N_pad).
     gemm::GemmShape local_shape = {M_local_pad, N_pad, K_pad};
     gemm::gemm_cuda_full_options(h_A_local, h_B, h_C_local, local_shape);
 
@@ -161,6 +194,7 @@ int main(int argc, char **argv) {
     if (rank == 0) std::cout << "Gather results..." << std::endl;
 
     // Gather results
+    // Collect all partial C blocks from ranks back into C_full on the master.
     MPI_Gather(h_C_local, M_local_pad * N_pad, MPI_FLOAT,
                h_C_full, M_local_pad * N_pad, MPI_FLOAT,
                0, MPI_COMM_WORLD);
@@ -183,6 +217,10 @@ int main(int argc, char **argv) {
         for (int r : rows_to_check) {
             if (r < 0 || r >= M_real) continue;
 
+            // Expected calculation:
+            // A[r][k] = r % 100
+            // B[k][c] = 1.0
+            // C[r][c] = Sum(A[r][k] * B[k][c]) = Sum(r % 100) over K = (r % 100) * K
             float expected = (float)(r % 100) * (float)K_real;
 
             // Access padded C matrix
