@@ -7,6 +7,20 @@ set(PROJ_INC_DIRS
   ${PROJECT_SOURCE_DIR}/src/include
 )
 
+if(ENABLE_CUDA OR ENABLE_ALPAKA)
+  if(NOT MPI_CXX_HEADER_DIR)
+    find_path(MPI_CXX_HEADER_DIR mpi.h
+      HINTS ENV MPI_HOME
+      PATHS /usr/lib/x86_64-linux-gnu/openmpi/include
+      PATH_SUFFIXES include openmpi/include
+    )
+  endif()
+  if(NOT MPI_CXX_COMPILER)
+    find_program(MPI_CXX_COMPILER NAMES mpicxx mpic++ mpicxx.openmpi)
+  endif()
+  find_package(MPI REQUIRED COMPONENTS CXX)
+endif()
+
 if(ENABLE_CUDA)
   add_library(gemm_backend_cuda STATIC
           backends/cuda/gemm_cuda_naive.cu
@@ -22,8 +36,6 @@ if(ENABLE_CUDA)
   #add_executable(benchmark_cuda backends/cuda/benchmark_test.cu)
   #target_link_libraries(benchmark_cuda PRIVATE gemm_backend_cuda CUDA::cudart)
   #target_include_directories(benchmark_cuda PRIVATE ${CMAKE_SOURCE_DIR}/include)
-
-  find_package(MPI REQUIRED)
 
   add_executable(gemm_cuda_mpi backends/cuda/gemm_cuda_mpi.cu)
 
@@ -56,8 +68,6 @@ if(ENABLE_ALPAKA)
   target_compile_options(gemm_backend_alpaka PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --extended-lambda>
   )
-
-  find_package(MPI REQUIRED)
 
   set_source_files_properties(
                backends/alpaka/gemm_mpi.cpp

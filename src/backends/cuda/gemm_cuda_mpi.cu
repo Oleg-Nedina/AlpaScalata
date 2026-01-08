@@ -140,6 +140,9 @@ int main(int argc, char **argv) {
             for (int c = 0; c < K_real; ++c) {
                 h_A_full[r * K_pad + c] = val;
             }
+            for (int c = K_real; c < K_pad; ++c) {
+                h_A_full[r * K_pad + c] = 0.0f;
+            }
         }
         // Zero out padding rows in A if any (crucial to avoid NaN/Inf affecting results)
         for (int r = M_real; r < M_pad; ++r) {
@@ -150,6 +153,14 @@ int main(int argc, char **argv) {
         for (int r = 0; r < K_real; ++r) {
             for (int c = 0; c < N_real; ++c) {
                 h_B[r * N_pad + c] = 1.0f;
+            }
+            for (int c = N_real; c < N_pad; ++c) {
+                h_B[r * N_pad + c] = 0.0f;
+            }
+        }
+        for (int r = K_real; r < K_pad; ++r) {
+            for (int c = 0; c < N_pad; ++c) {
+                h_B[r * N_pad + c] = 0.0f;
             }
         }
     }

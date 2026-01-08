@@ -130,16 +130,24 @@ namespace gemm {
                 int globalRow = rowStart + vecRow;
                 int globalCol = tiledK + col;
 
-                if (globalRow < M && globalCol < K) {
+                if (globalRow < M && globalCol + 3 < K) {
                     size_t idxA = (size_t)globalRow * lda + globalCol;
                     float4 loaded = *reinterpret_cast<const float4 *>(&A[idxA]);
                     *reinterpret_cast<float4 *>(&As[vecRow * BK + col]) = loaded;
                 } else {
                     float *ptr = &As[vecRow * BK + col];
-                    ptr[0] = 0.0f;
-                    ptr[1] = 0.0f;
-                    ptr[2] = 0.0f;
-                    ptr[3] = 0.0f;
+                    if (globalRow < M) {
+                        size_t idxA = (size_t)globalRow * lda + globalCol;
+                        ptr[0] = (globalCol + 0 < K) ? A[idxA + 0] : 0.0f;
+                        ptr[1] = (globalCol + 1 < K) ? A[idxA + 1] : 0.0f;
+                        ptr[2] = (globalCol + 2 < K) ? A[idxA + 2] : 0.0f;
+                        ptr[3] = (globalCol + 3 < K) ? A[idxA + 3] : 0.0f;
+                    } else {
+                        ptr[0] = 0.0f;
+                        ptr[1] = 0.0f;
+                        ptr[2] = 0.0f;
+                        ptr[3] = 0.0f;
+                    }
                 }
             }
 
@@ -152,16 +160,24 @@ namespace gemm {
                 int globalRow = tiledK + vecRow;
                 int globalCol = colStart + col;
 
-                if (globalRow < K && globalCol < N) {
+                if (globalRow < K && globalCol + 3 < N) {
                     size_t idxB = (size_t)globalRow * ldb + globalCol;
                     float4 loaded = *reinterpret_cast<const float4 *>(&B[idxB]);
                     *reinterpret_cast<float4 *>(&Bs[vecRow * BN + col]) = loaded;
                 } else {
                     float *ptr = &Bs[vecRow * BN + col];
-                    ptr[0] = 0.0f;
-                    ptr[1] = 0.0f;
-                    ptr[2] = 0.0f;
-                    ptr[3] = 0.0f;
+                    if (globalRow < K) {
+                        size_t idxB = (size_t)globalRow * ldb + globalCol;
+                        ptr[0] = (globalCol + 0 < N) ? B[idxB + 0] : 0.0f;
+                        ptr[1] = (globalCol + 1 < N) ? B[idxB + 1] : 0.0f;
+                        ptr[2] = (globalCol + 2 < N) ? B[idxB + 2] : 0.0f;
+                        ptr[3] = (globalCol + 3 < N) ? B[idxB + 3] : 0.0f;
+                    } else {
+                        ptr[0] = 0.0f;
+                        ptr[1] = 0.0f;
+                        ptr[2] = 0.0f;
+                        ptr[3] = 0.0f;
+                    }
                 }
             }
 

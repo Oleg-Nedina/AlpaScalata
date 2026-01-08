@@ -1,6 +1,17 @@
 
 cmake_minimum_required(VERSION 3.24)
-
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  # Set a CUDA 12+ compatible default to avoid sm_52 during compiler ID.
+  set(CMAKE_CUDA_ARCHITECTURES 89 CACHE STRING "CUDA architectures" FORCE)
+endif()
+if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER AND EXISTS "/usr/bin/g++-12")
+  # nvcc 12.x does not support GCC 13+ as host compiler.
+  set(CMAKE_CUDA_HOST_COMPILER "/usr/bin/g++-12" CACHE FILEPATH "CUDA host compiler" FORCE)
+endif()
+if(NOT DEFINED CMAKE_CUDA_FLAGS)
+  # Force an explicit arch for the CUDA compiler ID step (nvcc defaults to sm_52).
+  set(CMAKE_CUDA_FLAGS "-arch=sm_${CMAKE_CUDA_ARCHITECTURES}" CACHE STRING "CUDA flags" FORCE)
+endif()
 project(AlpaScalata LANGUAGES CXX CUDA)
 
 option(ENABLE_CUDA   "Build CUDA backend"   ON)

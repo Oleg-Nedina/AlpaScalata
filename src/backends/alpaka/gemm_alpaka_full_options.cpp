@@ -134,16 +134,24 @@ template <int BM, int BN, int BK, int TM, int TN> struct GemmCoarsenedKernel {
         int globalRow = rowStart + vecRow;
         int globalCol = tiledK + col;
 
-        if (globalRow < M && globalCol < K) {
+        if (globalRow < M && globalCol + 3 < K) {
           float4 loaded =
               *reinterpret_cast<const float4 *>(&A[globalRow * K + globalCol]);
 
           *reinterpret_cast<float4 *>(&As[vecRow][col]) = loaded;
         } else {
-          As[vecRow][col] = 0.0f;
-          As[vecRow][col + 1] = 0.0f;
-          As[vecRow][col + 2] = 0.0f;
-          As[vecRow][col + 3] = 0.0f;
+          if (globalRow < M) {
+            size_t idxA = (size_t)globalRow * K + globalCol;
+            As[vecRow][col] = (globalCol + 0 < K) ? A[idxA + 0] : 0.0f;
+            As[vecRow][col + 1] = (globalCol + 1 < K) ? A[idxA + 1] : 0.0f;
+            As[vecRow][col + 2] = (globalCol + 2 < K) ? A[idxA + 2] : 0.0f;
+            As[vecRow][col + 3] = (globalCol + 3 < K) ? A[idxA + 3] : 0.0f;
+          } else {
+            As[vecRow][col] = 0.0f;
+            As[vecRow][col + 1] = 0.0f;
+            As[vecRow][col + 2] = 0.0f;
+            As[vecRow][col + 3] = 0.0f;
+          }
         }
       }
 
@@ -156,15 +164,23 @@ template <int BM, int BN, int BK, int TM, int TN> struct GemmCoarsenedKernel {
         int globalRow = tiledK + vecRow;
         int globalCol = colStart + col;
 
-        if (globalRow < K && globalCol < N) {
+        if (globalRow < K && globalCol + 3 < N) {
           float4 loaded =
               *reinterpret_cast<const float4 *>(&B[globalRow * N + globalCol]);
           *reinterpret_cast<float4 *>(&Bs[vecRow][col]) = loaded;
         } else {
-          Bs[vecRow][col] = 0.0f;
-          Bs[vecRow][col + 1] = 0.0f;
-          Bs[vecRow][col + 2] = 0.0f;
-          Bs[vecRow][col + 3] = 0.0f;
+          if (globalRow < K) {
+            size_t idxB = (size_t)globalRow * N + globalCol;
+            Bs[vecRow][col] = (globalCol + 0 < N) ? B[idxB + 0] : 0.0f;
+            Bs[vecRow][col + 1] = (globalCol + 1 < N) ? B[idxB + 1] : 0.0f;
+            Bs[vecRow][col + 2] = (globalCol + 2 < N) ? B[idxB + 2] : 0.0f;
+            Bs[vecRow][col + 3] = (globalCol + 3 < N) ? B[idxB + 3] : 0.0f;
+          } else {
+            Bs[vecRow][col] = 0.0f;
+            Bs[vecRow][col + 1] = 0.0f;
+            Bs[vecRow][col + 2] = 0.0f;
+            Bs[vecRow][col + 3] = 0.0f;
+          }
         }
       }
 
