@@ -37,6 +37,7 @@ optimized kernels, config-driven benchmarking, and automated plotting.
 - **Optimization Strategies:**
 - - Implements **Logical Padding** to handle arbitrary matrix dimensions without segmentation faults.
 - - Uses **Vectorized Loads** (`float4`) and **2D Register Tiling** for maximizing memory throughput.
+  - - The padding is implemented by the **MPI implementations**: **full_options kernel** works in float4 because they can be called only by MPI, which ensures a correct input padding to the kernels.
 
 ---
 
@@ -89,3 +90,8 @@ The repository is organized to separate solver logic from benchmarking infrastru
   - `pandas`
     - `matplotlib`
     ---
+
+## Please Consider
+
+- **Do Not Run** with an input matrix of dimensions exceeding integer bounds (2e31 -1): each implementation uses **Integer Indexes**, the same of MPI.
+- A workaround to this problem can be the utilization of **Support Variables** (not implemented).
