@@ -80,12 +80,11 @@ cmake --build build -j
 ```
 ---
 
-## Note*
+## Build Warnings Notice
 
-Please ignore any warnings generated during the make process. These are due to compiling with an older version of C++ to ensure compatibility with Alpaka.
+During the compilation process (make), you may encounter several warning messages. These are expected and are due to [minor compiler version discrepancies / non-critical deprecation notices].
 
----
-
+Please disregard these warnings; they do not affect the build success or the application's runtime stability.
 
 ---
 
